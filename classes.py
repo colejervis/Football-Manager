@@ -19,6 +19,7 @@ class gameObject:
     def getAll(self):
         return self.dateObject, self.players, self.positions, self.clubs, self.leagues, self.managers, self.stadiums, self.nations
 
+
     def annualUpdate(self):
         for player in self.players.values():
             # INCREMENTING PLAYER AGES BY 1
