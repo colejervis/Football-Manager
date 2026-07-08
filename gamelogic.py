@@ -40,9 +40,16 @@ def game_initialisation(players, positions, clubs, leagues, managers, stadiums, 
 
     date.setDate(2, 7, 2025)
 
+    # ARRANGES ALL LEAGUE'S FIXTURES
     for league in leagues.values():
         tempDate = copy.deepcopy(game.getDateObject())
         league.arrangeFixtures(tempDate)
+
+    # SPLITS CLUB PLAYERS INTO FIRST TEAM AND YOUTH ACADEMY
+
+    for club in clubs.values():
+        if club.getID() != 0:
+            club.autoSplitPlayers(date)
 
     return game
 
@@ -53,39 +60,36 @@ def match_sim_test(game, fixture):
     homeScore = randint(1, 4)
     awayScore = randint(1, 4)
 
-    # POST MATCH PROCESSING
+    # EXTRA TIME
+    if fixture.getType() == "knockout":
+        while homeScore == awayScore:
+            homeScore = homeScore + randint(1, 4)
+            awayScore = awayScore + randint(1, 4)
+
+    # SENDS FIXTURE DATA TO LEAGUE / COMPETITION TO BE PROCESSED
     fixture.setScore(homeScore, awayScore)
-    homeClub, awayClub = fixture.getTeams()
-    homeClub.incrementMatchesPlayed()
-    awayClub.incrementMatchesPlayed()
-    for i in range(homeScore):
-        homeClub.incrementGoalsFor()
-        awayClub.incrementGoalsAgainst()
-    for i in range(awayScore):
-        awayClub.incrementGoalsFor()
-        homeClub.incrementGoalsAgainst()
-    if homeScore == awayScore:
-        homeClub.incrementDraws()
-        awayClub.incrementDraws()
-    elif homeScore > awayScore:
-        homeClub.incrementWins()
-        awayClub.incrementLosses()
-    elif homeScore < awayScore:
-        awayClub.incrementWins()
-        homeClub.incrementLosses()
+    leagues = game.getLeagues()
+    leagueID = fixture.getLeagueID()
+    leagueObject = leagues[leagueID]
+    leagueObject.postMatchProcessing(fixture)
 
 
 def match_checker(game):
     dateObject = game.getDateObject()
+    clubs = game.getClubs()
 
-    # CHECKS FOR MATCHES
+    processed = set()
 
-    leagues = game.getLeagues()
-    for league in leagues.values():
-        fixtures = league.getFixtures()
-        for fixture in fixtures:
+    for club in clubs.values():
+        for fixture in club.getFixtures():
+
+            if id(fixture) in processed:
+                continue
+
             if fixture.getDate() == dateObject.getDate():
                 match_sim_test(game, fixture)
+
+            processed.add(id(fixture))
 
 
 
@@ -95,6 +99,8 @@ def game_loop(game):
         dateObject = game.getDateObject()
 
         day, month, year = dateObject.getDate()
+
+        game.morningDailyUpdate()
 
         if (day == 25) and (month == 6):
             game.seasonUpdate()
@@ -180,7 +186,7 @@ def autoCreateManager(managers):
     lastName = "Jervis"
     age = 20
     nationID = 1
-    clubID = randint(1,20)
+    clubID = randint(1,44)
     playerManager = PlayerManager(ID, firstName, lastName, age, nationID, clubID)
 
     for manager in managers.values():

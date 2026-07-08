@@ -1,4 +1,5 @@
 
+
 def seperator():
     return "─═─" * 20
 
@@ -172,8 +173,8 @@ def view_club_fixtures(clubID, club, game):
         12: "December"
     }
 
+    leagues = game.getLeagues()
     fixtures = club.getFixtures()
-    print(len(fixtures))
     print(seperator())
     print(f"️🛡️️ {club.getFullName()}'s Fixtures")
     print(seperator())
@@ -192,11 +193,18 @@ def view_club_fixtures(clubID, club, game):
 
         home, away = fixture.getTeams()
 
+        league = leagues[fixture.getLeagueID()]
         if fixture.getScore() is not None:
             hScore, aScore = fixture.getScore()
-            print(f"{day}/{month}/{year} | {home.getShortName()} {hScore} - {away.getShortName()} {aScore}")
-        else:
-            print(f"{day}/{month}/{year} | {home.getShortName()} - {away.getShortName()}")
+
+        if fixture.getScore() is not None and fixture.getType() == "league":
+            print(f"{league.getName()} | {day}/{month}/{year} | {home.getShortName()} {hScore} - {away.getShortName()} {aScore}")
+        elif fixture.getScore() is not None and fixture.getType() == "knockout" and fixture.getTournamentID() is None:
+            print(f"{league.getName()} | {fixture.getStage()} | {day}/{month}/{year} | {home.getShortName()} {hScore} - {away.getShortName()} {aScore}")
+        elif fixture.getScore() is None and fixture.getType() == "league":
+            print(f"{league.getName()} | {day}/{month}/{year} | {home.getShortName()} - {away.getShortName()}")
+        elif fixture.getScore() is None and fixture.getType() == "knockout" and fixture.getTournamentID() is None:
+            print(f"{league.getName()} | {fixture.getStage()} | {day}/{month}/{year} | {home.getShortName()} - {away.getShortName()}")
 
     ui = option_menu([f"View {club.getFullName()}"], go_back_allowed=True)
     if ui == 1:
@@ -220,7 +228,7 @@ def view_league_menu(leagueID, league, game, sort="points"):
         clubList.append(club)
 
     if sort == "points":
-        clubList.sort(key=lambda p: p.getPoints(), reverse=True)
+        clubList.sort(key=lambda club: (-club.getPoints(), -club.getGoalDifference(), -club.getGoalsFor(), club.getFullName()))
     elif sort == "gamesPlayed":
         clubList.sort(key=lambda p: p.getMatchesPlayed(), reverse=True)
     elif sort == "goalDifference":
@@ -361,34 +369,51 @@ def view_player_menu(playerID, player, game):
 
     dateObject, players, positions, clubs, leagues, managers, stadiums, nations = game.getAll()
 
-    # ACCESSES USER'S CLUB'S PLAYERS READY FOR STAR RATING COMPARISON - ADDS PLAYER IF NOT IN LIST ALREADY
     playerManagerID = len(managers)
     playerManagerClubID = clubs[managers[playerManagerID].getClub()].getID()
     if playerManagerClubID != 0:
-        playersListForStarRating = clubs[playerManagerClubID].getPlayers().copy()
+        playersListForStarRating = clubs[playerManagerClubID].getFirstTeam()
     else:
-        playersListForStarRating = players.copy()
+        playersListForStarRating = players
 
-    if player not in playersListForStarRating:
-        playersListForStarRating.append(player)
 
     print(seperator())
-    print(f"️‍⛹️‍♂️ {player.getName()} | Age: {player.getAge()} | {nations[player.getNationality()].getName()}")
-    print(f"{player.getPosition().getName()} | {clubs[player.getClub()].getFullName()} {clubs[player.getClub()].printColors()} | Rating: {player.calculateStarRating(playersListForStarRating)}")
+    print(f"️‍⛹️‍♂️ {player.getName()} | Age: {player.getAge(dateObject)} ({player.getBirthday()}) | {nations[player.getNationality()].getName()}")
+    print(f"{player.getPosition().getName()} | {clubs[player.getClub()].getFullName()} {clubs[player.getClub()].printColors()} | {player.calculateRating()} | Rating: {player.calculateStarRating(playersListForStarRating)}")
     print(seperator())
-    pace, shooting, passing, dribbling, defending, physical, reflexes, handling, positioning = player.getAttributes()
+    (passing, dribbling, finishing, defending, ball_control, delivery, vision, football_iq, positioning, composure, decision_making, work_rate, aggression,
+     pace, strength, stamina, aerial, shot_stopping, handling, distribution, command)= player.getAttributes()
     print("📊 Attributes:")
-    if player.getPosition() == "GK":
-        print(f"Reflexes: {reflexes}")
+    if player.getPosition().getAbbreviation() == "GK":
+        print(f"Shot Stopping: {shot_stopping}")
         print(f"Handling: {handling}")
-        print(f"Positioning: {positioning}")
+        print(f"Distribution: {distribution}")
+        print(f"Command: {command}")
     else:
-        print(f"Pace: {pace}")
-        print(f"Shooting: {shooting}")
+        print("")
+        print("⚽ TECHNICAL:")
+        print(f"Finishing: {finishing}")
+        print(f"Delivery: {delivery}")
         print(f"Passing: {passing}")
         print(f"Dribbling: {dribbling}")
+        print(f"Ball Control: {ball_control}")
         print(f"Defending: {defending}")
-        print(f"Physical: {physical}")
+        print("")
+        print("🧠 MENTAL:")
+        print(f"Vision: {vision}")
+        print(f"Decision Making: {decision_making}")
+        print(f"Composure: {composure}")
+        print(f"Football IQ: {football_iq}")
+        print(f"Positioning: {positioning}")
+        print(f"Aggression: {aggression}")
+        print(f"Work Rate: {work_rate}")
+        print("")
+        print("💪 PHYSICAL:")
+        print(f"Pace: {pace}")
+        print(f"Strength: {strength}")
+        print(f"Stamina: {stamina}")
+        print(f"Aerial: {aerial}")
+
     if player.getClub() != 0:
         print("")
         print("🛡️ Club:")
@@ -445,7 +470,7 @@ def player_database_menu(game, page = 1, settings = {}):
     playerManagerClubID = clubs[managers[playerManagerID].getClub()].getID()
     ClubObject = clubs[playerManagerClubID]
 
-    playerManagerClubPlayersCopy = ClubObject.getPlayers().copy()
+    clubPlayers = ClubObject.getFirstTeam()
 
     playerList = []
 
@@ -458,11 +483,11 @@ def player_database_menu(game, page = 1, settings = {}):
     players_to_remove = []
     if "Minimum Age Restriction" in settings.keys():
         for player in playerList:
-            if player.getAge() < settings["Minimum Age Restriction"]:
+            if player.getAge(dateObject) < settings["Minimum Age Restriction"]:
                 players_to_remove.append(player)
     if "Maximum Age Restriction" in settings.keys():
         for player in playerList:
-            if player.getAge() > settings["Maximum Age Restriction"]:
+            if player.getAge(dateObject) > settings["Maximum Age Restriction"]:
                 players_to_remove.append(player)
     if "Free Agents Only" in settings.keys():
         for player in playerList:
@@ -495,10 +520,8 @@ def player_database_menu(game, page = 1, settings = {}):
 
     for player in playerList[pageStart-1:pageEnd]:
         playersOnPage.append(player)
-        playerManagerClubPlayersCopy.append(player)
-        print(f"{player.calculateStarRating(playerManagerClubPlayersCopy)} | {player.calculateMarketValue(game)} "
-              f"| {player.getPosition()} | {clubs[player.getClub()].getShortName()} | {nations[player.getNationality()].getAbbreviation()} | {player.getAge()} | {player.getName()} | {player.calculateRating()}")
-        playerManagerClubPlayersCopy.remove(player)
+        print(f"{player.calculateStarRating(clubPlayers)} | {player.calculateMarketValue(game)} "
+              f"| {player.getPosition()} | {clubs[player.getClub()].getShortName()} | {nations[player.getNationality()].getAbbreviation()} | {player.getAge(dateObject)} | {player.getName()} | {player.calculateRating()}")
 
     ui = option_menu(["Previous Page", "Next Page", "Search for player on page", "Filters"], go_back_allowed=True)
     if ui == 1:
@@ -601,40 +624,50 @@ def team_sheet_menu(clubID, club, game):
 
 
 
-def view_squad_screen(clubID, game, sort = "position"):
+def view_squad_screen(clubID, game, sort = "position", type = "firstTeam"):
     dateObject, players, positions, clubs, leagues, managers, stadiums, nations = game.getAll()
 
     print(seperator())
     print(f"{clubs[clubID].printColors()} {clubs[clubID].getFullName()}'s Squad")
     print(seperator())
-    clubPlayers = clubs[clubID].getPlayers().copy()
+    clubPlayers = clubs[clubID].getPlayers()
+    firstTeam = clubs[clubID].getFirstTeam()
+
+    if type == "firstTeam":
+        clubPlayers = clubs[clubID].getFirstTeam()
+    elif type == "youthTeam":
+        clubPlayers = clubs[clubID].getYouthTeam()
 
     if sort == "rating":
         clubPlayers.sort(key=lambda p: p.calculateRating(), reverse = True)
     elif sort == "position":
         clubPlayers.sort(key=lambda p: p.getPosition().getID())
     elif sort == "age":
-        clubPlayers.sort(key=lambda p: p.getAge())
+        clubPlayers.sort(key=lambda p: p.getAge(dateObject))
 
     print("Star Rating | Pos | Nation | Age | Name")
     print(seperator())
     for player in clubPlayers:
-        print(f"{player.calculateStarRating(clubPlayers)} | {player.getPosition()} | {nations[player.getNationality()].getAbbreviation()} | {player.getAge()} | {player.getName()}")
-    ui = option_menu(["Sort players by rating", "Sort players by position", "Sort players by age", "View a player in squad"], go_back_allowed=True)
+        print(f"{player.calculateStarRating(firstTeam)} | {player.getPosition()} | {nations[player.getNationality()].getAbbreviation()} | {player.getAge(dateObject)} | {player.getName()}")
+    ui = option_menu([f"View {clubs[clubID].getShortName()} First Team", f"View {clubs[clubID].getShortName()} Youth Squad", "Sort players by rating", "Sort players by position", "Sort players by age", "View a player in squad"], go_back_allowed=True)
     if ui == 1:
-        view_squad_screen(clubID, game, sort="rating")
+        view_squad_screen(clubID, game, sort="position", type = "firstTeam")
     elif ui == 2:
-        view_squad_screen(clubID, game, sort="position")
+        view_squad_screen(clubID, game, sort="position", type = "youthTeam")
     elif ui == 3:
-        view_squad_screen(clubID, game, sort="age")
+        view_squad_screen(clubID, game, sort="rating", type=type)
     elif ui == 4:
+        view_squad_screen(clubID, game, sort="position", type=type)
+    elif ui == 5:
+        view_squad_screen(clubID, game, sort="age", type=type)
+    elif ui == 6:
         tempDict = {}
         for player in clubPlayers:
             tempDict[player.getID()] = player
         clubPlayers = tempDict
         playerID, player = search(clubPlayers)
         view_player_menu(playerID, player, game)
-    elif ui == 5:
+    elif ui == 7:
         return
 
 def universal_search_menu(game):
@@ -706,7 +739,7 @@ def holiday_menu(game):
                     passed = True
                 else:
                     print("🚫 Invalid month!")
-            print(f"✅ Age set to {month}!")
+            print(f"✅ Month of year set to {month}!")
         elif ui == 3:
             passed = False
             while not passed:
@@ -715,7 +748,7 @@ def holiday_menu(game):
                     passed = True
                 else:
                     print("🚫 Invalid year!")
-            print(f"✅ Age set to {year}!")
+            print(f"✅ Year set to {year}!")
         elif ui == 4:
             if day is not None and month is not None and year is not None and dateObject.validDateChecker(day, month, year) is True and dateObject.isInFutureChecker(day, month, year) is True:
 
@@ -756,7 +789,7 @@ def game_main_menu(game):
         print(f"{dateObject.getWeekday()} | {day}/{month}/{year} - {managers[playerManagerID].getName()} - {clubs[playerManagerClubID].getFullName()} {clubs[playerManagerClubID].printColors()}")
         if next_fixture is not None:
             print(f"➡️ Next Match: {opposition.getName()} | {d}/{m}/{y}")
-        ui = option_menu(["Advance", f"View {clubs[playerManagerClubID].getShortName()} Team Sheet", f"View {clubs[playerManagerClubID].getShortName()} Squad", f"View {clubs[playerManagerClubID].getShortName()} Club Site",
+        ui = option_menu(["Advance", f"View {clubs[playerManagerClubID].getShortName()} Team Sheet", f"View {clubs[playerManagerClubID].getShortName()} First Team Squad", f"View {clubs[playerManagerClubID].getShortName()} Club Site",
                           f"View {clubs[playerManagerClubID].getShortName()}'s Fixtures", "Universal Search", "Recruitment Hub", "Go On Holiday", "Return to main menu"])
         if ui == 1:
             return "Advance"

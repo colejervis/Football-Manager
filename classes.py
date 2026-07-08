@@ -1,3 +1,7 @@
+from time import process_time
+
+from gamelogic import *
+
 import random
 import copy
 
@@ -13,6 +17,8 @@ class gameObject:
         self.stadiums = stadiums
         self.nations = nations
 
+        self.playoffsArranged = False
+
         self.onHoliday = False
         self.holidayDate = None
 
@@ -22,9 +28,6 @@ class gameObject:
 
     def annualUpdate(self):
         for player in self.players.values():
-            # INCREMENTING PLAYER AGES BY 1
-            player.incrementAge()
-
             # REMOVING LOANS
             if player.getParentClub() != player.getClub():
 
@@ -61,9 +64,54 @@ class gameObject:
             # INCREMENTING PLAYER AGES BY 1
             manager.incrementAge()
 
+        # SPLITS CLUB PLAYERS INTO FIRST TEAM AND YOUTH ACADEMY
+
+        for club in self.clubs.values():
+            if club.getID() != 0:
+                club.autoSplitPlayers(self.dateObject)
+
     def seasonUpdate(self):
 
         # PROMOTION / RELEGATION LOGIC HERE
+
+        for league in self.leagues.values():
+
+            clubs = league.getClubs()
+            clubList = []
+
+            for club in clubs.values():
+                clubList.append(club)
+
+            clubList.sort(key=lambda club: (-club.getPoints(), -club.getGoalDifference(), -club.getGoalsFor(), club.getFullName()))
+
+            promoted = []
+            relegated = []
+
+            for i in range(league.getPromotionPlaces()):
+                promoted.append(clubList[i])
+
+            if league.getPlayoffObject() is not None:
+                playoffWinner = league.getPlayoffObject().getWinner()
+                promoted.append(playoffWinner)
+
+            clubList.reverse()
+
+            for i in range(league.getRelegationPlaces()):
+                relegated.append(clubList[i])
+
+            if league.getLeagueAboveID() != 0:
+                for club in promoted:
+                    club.setLeague(league.getLeagueAboveID())
+                    league.removeClub(club.getID())
+                    self.leagues[league.getLeagueAboveID()].addClub(club.getID(), club)
+
+            if league.getLeagueBelowID() != 0:
+                for club in relegated:
+                    club.setLeague(league.getLeagueBelowID())
+                    league.removeClub(club.getID())
+                    self.leagues[league.getLeagueBelowID()].addClub(club.getID(), club)
+
+
 
         # REMOVES ALL LEAGUE TABLE DATA FROM CLUBS
         for club in self.clubs.values():
@@ -78,8 +126,26 @@ class gameObject:
             club.getFixtures().clear()
 
         for league in self.leagues.values():
+            league.updateStartDate(self.dateObject.getDate())
             tempDate = copy.deepcopy(self.dateObject)
             league.arrangeFixtures(tempDate)
+
+        self.playoffsArranged = False
+
+    def morningDailyUpdate(self):
+
+        # CHECKS IF SEASONS HAVE FINISHED TO ARRANGE PLAYOFFS
+        day, month, year = self.dateObject.getDate()
+        if day > 20 and month == 5 and self.playoffsArranged is False:
+            for league in self.leagues.values():
+                tempDate = copy.deepcopy(self.dateObject)
+                league.arrangePlayoffs(tempDate)
+                self.playoffsArranged = True
+
+    def afternoonDailyUpdate(self):
+        match_checker(self)
+        self.dateObject.advance()
+
 
     def getDateObject(self):
         return self.dateObject
@@ -340,7 +406,7 @@ class PlayerManager(Person):
         self.playerShortlist.remove(player)
 
 class League:
-    def __init__(self, id, nationID, name, reputation, start_date):
+    def __init__(self, id, nationID, name, reputation, start_date, promotion_places, leagueAboveID, playoff_qualifying_positions, relegation_places, leagueBelowID):
         self.id = int(id)
         self.nationID = int(nationID)
         self.name = name
@@ -348,9 +414,23 @@ class League:
         self.clubs = {}
         self.fixtures = []
         self.start_date = start_date
+        self.promotion_places = int(promotion_places)
+        self.playoff_qualifying_positions = playoff_qualifying_positions
+        self.relegation_places = int(relegation_places)
+        self.leagueAboveID = int(leagueAboveID)
+        self.leagueBelowID = int(leagueBelowID)
+        self.playoffObject = None
+
+        self.playoffTeams = []
 
     def getLeagueID(self):
         return self.id
+
+    def getLeagueAboveID(self):
+        return self.leagueAboveID
+
+    def getLeagueBelowID(self):
+        return self.leagueBelowID
 
     def getNation(self):
         return self.nationID
@@ -361,19 +441,42 @@ class League:
     def addClub(self, id, club):
         self.clubs[id] = club
 
+    def removeClub(self, id):
+        del self.clubs[id]
+
     def getClubs(self):
         return self.clubs
 
     def getFixtures(self):
         return self.fixtures
 
+    def getPromotionPlaces(self):
+        return self.promotion_places
+
+    def getRelegationPlaces(self):
+        return self.relegation_places
+
+    def getPlayoffFixtures(self):
+        return self.playoffFixtures
+
     def getReputation(self):
         return self.reputation
 
+    def getPlayoffQualifyingPositions(self):
+        return self.playoff_qualifying_positions
+
+    def updateStartDate(self, current_date):
+        cDay, cMonth, cYear = current_date
+        sDay, sMonth, sYear = self.start_date.split("/")
+
+        self.start_date = f"{sDay}/{sMonth}/{cYear}"
+
     def arrangeFixtures(self, DateObject):
+
 
         if self.id == 0:
             return
+
 
         # FINDS NEXT SATURDAY
 
@@ -386,12 +489,11 @@ class League:
             day, month, year = match_date.split("/")
             day = int(day)
             month = int(month)
-            year = DateObject.getYear()
+            year = int(year)
 
             DateObject.setDate(day, month, year)
             while DateObject.getWeekday() != "Saturday":
                 DateObject.advance()
-            match_date = DateObject.getDate()
 
         # GENERATES ALL POSSIBLE FIXTURES FOR EVERY TEAM IN LEAGUE
 
@@ -412,7 +514,7 @@ class League:
 
                     if not duplicate:
                         id = id + 1
-                        f = Fixture(id, club, secondClub, self.id)
+                        f = Fixture(id, club, secondClub, self.id, None, "league")
                         fixtures.append(f)
 
         amount_of_fixtures = len(fixtures)
@@ -424,7 +526,22 @@ class League:
         while len(self.fixtures) < amount_of_fixtures:
 
             random.shuffle(fixtures)
+
+            back_track_completed = False
+
             for i in range(matchdays_count):
+
+                # BACK TRACKS TO FILL IN MID-WEEK FIXTURES IF IT GETS PAST 15TH MAY
+                day, month, year = DateObject.getDate()
+                sDay, sMonth, sYear = self.start_date.split("/")
+
+                if day > 10 and month >= 5 and year > int(sYear) and back_track_completed == False:
+                    DateObject.setDate(15, 9, year-1)
+                    # Finds next Tuesday
+                    while DateObject.getWeekday() != "Tuesday":
+                        DateObject.advance()
+                    back_track_completed = True
+
 
                 matchday = []
                 used_teams = set()
@@ -441,32 +558,218 @@ class League:
                 for fixture in fixtures_to_remove:
                     fixtures.remove(fixture)
 
-                for i in range(7):
-                    DateObject.advance()
+                if not back_track_completed:
+                    for i in range(7):
+                        DateObject.advance()
                     match_date = DateObject.getDate()
+                else:
+                    for i in range(21): # Sets midweek fixtures to happen every third week
+                        DateObject.advance()
+                    match_date = DateObject.getDate()
+
                 for index, fixture in enumerate(matchday):
                     fixture.setDate(match_date)
 
                 for fixture in matchday:
                     self.fixtures.append(fixture)
 
+        # ENSURES FIXTURES LIST IS IN ORDER
+        match_date = start_date
+        day, month, year = match_date.split("/")
+        day = int(day)
+        month = int(month)
+        year = int(year)
+        fixtures = self.fixtures
+        self.fixtures = []
+
+        DateObject.setDate(day, month, year)
+        for i in range(365):
+            DateObject.advance()
+            for fixture in fixtures:
+                if fixture.getDate() == DateObject.getDate():
+                    self.fixtures.append(fixture)
+
+
         # ADDS FIXTURES TO CLUB'S FIXTURE LIST
         for fixture in self.fixtures:
-            home, away = fixture.getTeams()
-            home.addFixture(fixture)
-            away.addFixture(fixture)
+            fixture.addFixtureToClubLists()
+
+    def getPlayoffObject(self):
+        return self.playoffObject
+
+    def postMatchProcessing(self, fixture):
+        if fixture.getType() == "league":
+            # POST MATCH PROCESSING FOR LEAGUE MATCHES
+
+            homeClub, awayClub = fixture.getTeams()
+            homeScore, awayScore = fixture.getScore()
+            homeClub.incrementMatchesPlayed()
+            awayClub.incrementMatchesPlayed()
+            for i in range(homeScore):
+                homeClub.incrementGoalsFor()
+                awayClub.incrementGoalsAgainst()
+            for i in range(awayScore):
+                awayClub.incrementGoalsFor()
+                homeClub.incrementGoalsAgainst()
+            if homeScore == awayScore:
+                homeClub.incrementDraws()
+                awayClub.incrementDraws()
+            elif homeScore > awayScore:
+                homeClub.incrementWins()
+                awayClub.incrementLosses()
+            elif homeScore < awayScore:
+                awayClub.incrementWins()
+                homeClub.incrementLosses()
+
+        elif fixture.getType() == "knockout": # PLAYOFF MATCH PROCESSING
+            self.playoffObject.postMatchProcessing(fixture)
+
+    def arrangePlayoffs(self, DateObject):
+        if self.playoff_qualifying_positions == str(0):
+            return
+
+        self.playoffTeams = []
+        first_team_position = int(self.playoff_qualifying_positions[0])
+        last_team_position = int(self.playoff_qualifying_positions[1])
+
+        clubList = []
+        for club in self.clubs.values():
+            clubList.append(club)
+
+        clubList.sort(key=lambda club: (club.getPoints(), club.getGoalDifference()), reverse=True)
+        teams = []
+        pointer = first_team_position - 1
+        numberOfTeams = (last_team_position - first_team_position) + 1
+
+        for i in range(numberOfTeams):
+            teams.append(clubList[pointer])
+            pointer = pointer + 1
+
+        preferred_matchday = "Saturday"
+
+        self.playoffObject = knockoutTournament(None, f"{self.name} Playoffs", teams, DateObject, preferred_matchday, self.id)
+
+
+class knockoutTournament:
+
+    ROUND_NAMES = {
+        2: "Final",
+        4: "Semi Final",
+        8: "Quarter Final",
+        16: "Round of 16",
+        32: "Round of 32",
+        64: "Round of 64"
+    }
+
+    def __init__(self, id, name, teams, DateObject, preferred_matchday, parentLeagueID = None):
+
+        self.id = id
+        self.name = name
+        self.teams = teams
+        self.DateObject = DateObject
+        self.preferred_matchday = preferred_matchday
+        self.currentRound = None
+        self.currentRoundFixtures = []
+        self.currentRoundTeams = teams
+        self.nextRoundTeams = []
+        self.parentLeagueID = parentLeagueID
+
+        size = self.getTournamentSize()
+        self.addByes(size)
+        self.buildRound()
+
+        self.winner = None
+
+    def getWinner(self):
+        return self.winner
+
+    def getTournamentSize(self):
+        size = 1
+
+        # ENSURES SIZE IS ONLY 2, 4, 8, 16, 32 ETC
+        while size < len(self.teams):
+            size *= 2
+
+        return size
+
+    def addByes(self, size):
+        # IF UNNATURAL NUMBER OF TEAMS, ADD 'BYES' USING NONE VALUES
+        while len(self.teams) < size:
+            self.teams.append(None)
+
+    def buildRound(self):
+
+        # Checks if there is a winner
+        if len(self.currentRoundTeams) == 1:
+            self.winner = self.currentRoundTeams[0]
+            return
+
+        self.currentRound = knockoutTournament.ROUND_NAMES[len(self.currentRoundTeams)]
+
+        # Goes to preferred Weekday of tournament if not already, and advances a week for next round of fixtures
+        while self.DateObject.getWeekday() != self.preferred_matchday:
+            self.DateObject.advance()
+        for i in range(7):
+            self.DateObject.advance()
+
+        for i in range(0, len(self.currentRoundTeams), 2): # ITERATES EVERY OTHER TEAM (EACH FIXTURE CONTAINS TWO TEAMS)
+            f = Fixture(None, self.currentRoundTeams[i], self.currentRoundTeams[i+1], self.parentLeagueID, None, "knockout", self.currentRound, self.DateObject.getDate())
+            self.currentRoundFixtures.append(f)
+            f.addFixtureToClubLists()
+
+
+    def postMatchProcessing(self, fixture):
+        homeScore, awayScore = fixture.getScore()
+        homeTeam, awayTeam = fixture.getTeams()
+        if homeScore > awayScore:
+            self.nextRoundTeams.append(homeTeam)
+        elif awayScore > homeScore:
+            self.nextRoundTeams.append(awayTeam)
+
+        if self.roundChecker():
+            self.updateRound()
+            self.buildRound()
+
+    def roundChecker(self):
+        passed = True
+        for fixture in self.currentRoundFixtures:
+            if fixture.getScore() is None:
+                passed = False
+
+        return passed
+
+    def updateRound(self):
+        self.currentRoundTeams = self.nextRoundTeams
+        self.nextRoundTeams = []
+        self.currentRoundFixtures = []
+
 
 
 
 class Fixture:
-    def __init__(self, id, homeClub, awayClub, leagueID, date=None, score=None):
-        self.id = int(id)
+    def __init__(self, id, homeClub, awayClub, leagueID, tournamentID, type, stage=None, date=None, score=None):
+
+        if id is not None:
+            self.id = int(id)
+
         self.homeClub = homeClub
         self.awayClub = awayClub
         self.date = date
-        self.leagueID = int(leagueID)
+        self.type = type
+        self.stage = stage
         self.homeScore = score
         self.awayScore = score
+
+        self.leagueID = int(leagueID)
+
+        if tournamentID is not None:
+            self.tournamentID = int(tournamentID)
+        else:
+            self.tournamentID = None
+
+    def setClubs(self, homeClub, awayClub):
+        self.homeClub = homeClub
+        self.awayClub = awayClub
 
     def getTeams(self):
         return self.homeClub, self.awayClub
@@ -480,88 +783,220 @@ class Fixture:
     def getLeagueID(self):
         return self.leagueID
 
+    def getTournamentID(self):
+        return self.tournamentID
+
+    def getType(self):
+        return self.type
+
+    def getStage(self):
+        return self.stage
+
     def getScore(self):
         if self.homeScore is None and self.awayScore is None:
             return None
         else:
             return self.homeScore, self.awayScore
 
-
     def setScore(self, homeScore, awayScore):
         self.homeScore = int(homeScore)
         self.awayScore = int(awayScore)
 
+    def addFixtureToClubLists(self):
+        self.homeClub.addFixture(self)
+        self.awayClub.addFixture(self)
 
-class Player(Person):
+class Player:
+
     GOALKEEPER_WEIGHTS = {
-        "reflexes": 0.30,
-        "handling": 0.30,
-        "positioning": 0.20,
-        "passing": 0.10,
-        "physical": 0.10
+        "passing": 0.01,
+        "dribbling": 0.00,
+        "finishing": 0.00,
+        "defending": 0.01,
+        "ball_control": 0.01,
+        "delivery": 0.00,
+        "vision": 0.01,
+        "football_iq": 0.02,
+        "positioning": 0.02,
+        "composure": 0.04,
+        "decision_making": 0.04,
+        "work_rate": 0.01,
+        "aggression": 0.01,
+        "pace": 0.01,
+        "strength": 0.02,
+        "aerial": 000,
+        "stamina": 0.00,
+        "shot_stopping": 0.32,
+        "handling": 0.20,
+        "distribution": 0.12,
+        "command": 0.12
     }
 
     CENTREBACK_WEIGHTINGS = {
-        "pace": 0.15,
-        "shooting": 0.00,
-        "passing": 0.05,
-        "dribbling": 0.05,
-        "defending": 0.40,
-        "physical": 0.35
+        "passing": 0.03,
+        "dribbling": 0.01,
+        "finishing": 0.00,
+        "defending": 0.20,
+        "ball_control": 0.03,
+        "delivery": 0.00,
+        "vision": 0.02,
+        "football_iq": 0.00,
+        "positioning": 0.15,
+        "composure": 0.06,
+        "decision_making": 0.06,
+        "work_rate": 0.03,
+        "aggression": 0.06,
+        "pace": 0.07,
+        "strength": 0.12,
+        "aerial": 0.14,
+        "stamina": 0.02,
+        "shot_stopping": 0,
+        "handling": 0,
+        "distribution": 0,
+        "command": 0
     }
 
     FULLBACK_WEIGHTINGS = {
-        "pace": 0.25,
-        "shooting": 0.05,
-        "passing": 0.20,
-        "dribbling": 0.15,
-        "defending": 0.25,
-        "physical": 0.10
+        "passing": 0.08,
+        "dribbling": 0.07,
+        "finishing": 0.01,
+        "defending": 0.16,
+        "ball_control": 0.05,
+        "delivery": 0.10,
+        "vision": 0.04,
+        "football_iq": 0.05,
+        "positioning": 0.09,
+        "composure": 0.04,
+        "decision_making": 0.05,
+        "work_rate": 0.07,
+        "aggression": 0.02,
+        "pace": 0.09,
+        "strength": 0.03,
+        "aerial": 0.02,
+        "stamina": 0.03,
+        "shot_stopping": 0,
+        "handling": 0,
+        "distribution": 0,
+        "command": 0
     }
 
     DEFENSIVE_MIDFIELDER_WEIGHTINGS = {
-        "pace": 0.10,
-        "shooting": 0.05,
-        "passing": 0.30,
-        "dribbling": 0.10,
-        "defending": 0.30,
-        "physical": 0.15
+        "passing": 0.09,
+        "dribbling": 0.02,
+        "finishing": 0.00,
+        "defending": 0.16,
+        "ball_control": 0.06,
+        "delivery": 0.02,
+        "vision": 0.06,
+        "football_iq": 0.08,
+        "positioning": 0.11,
+        "composure": 0.06,
+        "decision_making": 0.08,
+        "work_rate": 0.08,
+        "aggression": 0.05,
+        "pace": 0.04,
+        "strength": 0.05,
+        "aerial": 0.05,
+        "stamina": 0.07,
+        "shot_stopping": 0,
+        "handling": 0,
+        "distribution": 0,
+        "command": 0
     }
 
     CENTRAL_MIDFIELDER_WEIGHTINGS = {
-        "pace": 0.15,
-        "shooting": 0.15,
-        "passing": 0.30,
-        "dribbling": 0.15,
-        "defending": 0.15,
-        "physical": 0.10
+        "passing": 0.12,
+        "dribbling": 0.06,
+        "finishing": 0.02,
+        "defending": 0.05,
+        "ball_control": 0.10,
+        "delivery": 0.02,
+        "vision": 0.10,
+        "football_iq": 0.09,
+        "positioning": 0.04,
+        "composure": 0.05,
+        "decision_making": 0.10,
+        "work_rate": 0.10,
+        "aggression": 0.02,
+        "pace": 0.04,
+        "strength": 0.03,
+        "aerial": 0.01,
+        "stamina": 0.05,
+        "shot_stopping": 0,
+        "handling": 0,
+        "distribution": 0,
+        "command": 0
     }
 
     ATTACKING_MIDFIELDER_WEIGHTINGS = {
-        "pace": 0.15,
-        "shooting": 0.10,
-        "passing": 0.35,
-        "dribbling": 0.30,
-        "defending": 0.05,
-        "physical": 0.05
+        "passing": 0.11,
+        "dribbling": 0.10,
+        "finishing": 0.07,
+        "defending": 0.01,
+        "ball_control": 0.10,
+        "delivery": 0.04,
+        "vision": 0.15,
+        "football_iq": 0.09,
+        "positioning": 0.01,
+        "composure": 0.10,
+        "decision_making": 0.11,
+        "work_rate": 0.04,
+        "aggression": 0.01,
+        "pace": 0.05,
+        "strength": 0.01,
+        "aerial": 0.00,
+        "stamina": 0.02,
+        "shot_stopping": 0,
+        "handling": 0,
+        "distribution": 0,
+        "command": 0
     }
 
     WINGER_WEIGHTINGS = {
-        "pace": 0.30,
-        "shooting": 0.20,
-        "passing": 0.15,
-        "dribbling": 0.30,
-        "defending": 0.00,
-        "physical": 0.05
+        "passing": 0.06,
+        "dribbling": 0.16,
+        "finishing": 0.08,
+        "defending": 0.01,
+        "ball_control": 0.10,
+        "delivery": 0.10,
+        "vision": 0.05,
+        "football_iq": 0.07,
+        "positioning": 0.01,
+        "composure": 0.04,
+        "decision_making": 0.06,
+        "work_rate": 0.04,
+        "aggression": 0.01,
+        "pace": 0.17,
+        "strength": 0.01,
+        "aerial": 0.01,
+        "stamina": 0.02,
+        "shot_stopping": 0,
+        "handling": 0,
+        "distribution": 0,
+        "command": 0
     }
-
     STRIKER_WEIGHTINGS = {
-        "pace": 0.20,
-        "shooting": 0.40,
-        "passing": 0.10,
-        "dribbling": 0.15,
+        "passing": 0.01,
+        "dribbling": 0.05,
+        "finishing": 0.19,
         "defending": 0.00,
-        "physical": 0.15
+        "ball_control": 0.06,
+        "delivery": 0.00,
+        "vision": 0.01,
+        "football_iq": 0.13,
+        "positioning": 0.00,
+        "composure": 0.14,
+        "decision_making": 0.08,
+        "work_rate": 0.03,
+        "aggression": 0.03,
+        "pace": 0.12,
+        "strength": 0.07,
+        "aerial": 0.11,
+        "stamina": 0.02,
+        "shot_stopping": 0,
+        "handling": 0,
+        "distribution": 0,
+        "command": 0
     }
 
     SECONDARY_POSITION_FAMILIARITY = 0.9
@@ -579,24 +1014,45 @@ class Player(Person):
         10: [],
     }
 
-    def __init__(self, id, firstname, surname, age, nationality, clubID, position, pace, shooting, passing, dribbling,
-                 defending, physical, reflexes, handling, positioning, potential, current_wage, contract_length):
-        super().__init__(id, firstname, surname, age, nationality)
+    def __init__(self, id, firstname, surname, birthDay, birthMonth, birthYear, nationality, clubID, position,
+                 passing, dribbling, finishing, defending, ball_control, delivery,
+                 vision, football_iq, positioning, composure, decision_making, work_rate, aggression,
+                 pace, strength, stamina, aerial, shot_stopping, handling, distribution, command,
+                 potential, height, current_wage, contract_length):
         self.id = int(id)
+        self.firstname = firstname
+        self.surname = surname
+        self.birthDay = int(birthDay)
+        self.birthMonth = int(birthMonth)
+        self.birthYear = int(birthYear)
+        self.nationality = int(nationality)
         self.clubID = int(clubID)
         self.parentClubID = int(clubID)
         self.loanClubID = None
         self.position = int(position)
-        self.pace = int(pace)
-        self.shooting = int(shooting)
         self.passing = int(passing)
         self.dribbling = int(dribbling)
+        self.finishing = int(finishing)
         self.defending = int(defending)
-        self.physical = int(physical)
-        self.reflexes = int(reflexes)
-        self.handling = int(handling)
+        self.ball_control = int(ball_control)
+        self.delivery = int(delivery)
+        self.vision = int(vision)
+        self.football_iq = int(football_iq)
         self.positioning = int(positioning)
+        self.composure = int(composure)
+        self.decision_making = int(decision_making)
+        self.work_rate = int(work_rate)
+        self.aggression = int(aggression)
+        self.pace = int(pace)
+        self.strength = int(strength)
+        self.stamina = int(stamina)
+        self.aerial = int(aerial)
+        self.shot_stopping = int(shot_stopping)
+        self.handling = int(handling)
+        self.distribution = int(distribution)
+        self.command = int(command)
         self.potential = int(potential)
+        self.height = int(height)
         self.current_wage = int(current_wage)
         self.contract_length = int(contract_length)
 
@@ -610,10 +1066,13 @@ class Player(Person):
         if self.clubID == 0:
             return 0
 
+        DateObject = game.getDateObject()
+        age = self.getAge(DateObject)
+
         age_factor_mapping = {
-            1: 1.3,
-            21: 1.2,
-            25: 1.1,
+            1: 1.2,
+            21: 1.1,
+            25: 1.05,
             28: 1.0,
             31: 0.9,
             33: 0.8,
@@ -624,7 +1083,7 @@ class Player(Person):
 
         age_multiplier = 0
         for ageRequired, multiplier in age_factor_mapping.items():
-            if ageRequired > self.age:
+            if ageRequired > age:
                 break
             else:
                 age_multiplier = multiplier
@@ -636,7 +1095,7 @@ class Player(Person):
             65: 0.7,
             68: 0.8,
             72: 1.0,
-            82: 1.2
+            82: 1.1
         }
 
         clubObject = clubs[self.clubID]
@@ -653,7 +1112,7 @@ class Player(Person):
             55: 0.4,
             69: 0.5,
             75: 0.8,
-            82: 1.1
+            82: 1.05
         }
 
         leagueID = clubObject.getLeague()
@@ -672,8 +1131,8 @@ class Player(Person):
             65: 0.7,
             68: 0.8,
             72: 1,
-            82: 1.2,
-            90: 1.3,
+            82: 1.05,
+            90: 1.1,
         }
 
         nationID = leagueObject.getNation()
@@ -706,17 +1165,33 @@ class Player(Person):
         multiplier = league_reputation_multiplier * age_multiplier * nation_reputation_multiplier * club_reputation_multiplier * contract_length_multiplier
 
 
-        # USING EXPONENTIAL MODELLING - USES TWO SEPARATE EQUATIONS FOR MORE ACCURATE RESULT
-        if Player.calculateRating(self) > 64:
-            value = 0.085 * (1.271**Player.calculateRating(self))
-        elif Player.calculateRating(self) < 65:
-            value = 0.15 * (1.26**Player.calculateRating(self))
+        # USING EXPONENTIAL MODELLING
+
+        if Player.calculateRating(self) < 80:
+            value = 0 # Players of this ability are most likely semi-professional
+        elif Player.calculateRating(self) < 105:
+            value = 0.3583 * (1.12694 ** Player.calculateRating(self)) # Lower end National League players to top end League Two
+        elif Player.calculateRating(self) < 140:
+            value = 295.67 * (1.08042 ** Player.calculateRating(self)) # League One to decent Premier League
+        elif Player.calculateRating(self) < 190:
+            value = 6407.6 * (1.05799 ** Player.calculateRating(self)) # Premier League + Elite Players
+        else:
+            value = 250000000 # MAX VALUE - No team will pay more than this on one player
 
         value = value * multiplier
         value = float(f"{value:.2g}")
         value = int(value)
 
         return value
+
+    # ENSURES KEY ATTRIBUTES GROW RAPIDLY
+    def high_curve(x):
+        return (x / 10) ** 1.4 * 10
+
+    # ENSURES DECENTLY IMPORTANT ATTRIBUTES GROW EXPONENTIALLY
+    def mid_curve(x):
+        return (x / 10) ** 1.1 * 10
+
 
     def calculateRating(self, position=None):
 
@@ -739,48 +1214,46 @@ class Player(Person):
 
         weight = position_weights[position]
 
-        if position == 1:
-            ability = (
-                    weight["reflexes"] * self.reflexes +
-                    weight["handling"] * self.handling +
-                    weight["positioning"] * self.positioning +
-                    weight["passing"] * self.passing +
-                    weight["physical"] * self.physical)
-        else:
-            ability = (
-                    weight["pace"] * self.pace +
-                    weight["shooting"] * self.shooting +
-                    weight["passing"] * self.passing +
-                    weight["dribbling"] * self.dribbling +
-                    weight["defending"] * self.defending +
-                    weight["physical"] * self.physical)
+        ability = (
+                weight["passing"] * Player.mid_curve(self.passing) +
+                weight["dribbling"] * Player.high_curve(self.dribbling) +
+                weight["finishing"] * Player.high_curve(self.finishing) +
+
+                weight["defending"] * Player.mid_curve(self.defending) +
+
+                weight["ball_control"] * Player.mid_curve(self.ball_control) +
+                weight["delivery"] * Player.mid_curve(self.delivery) +
+                weight["vision"] * Player.mid_curve(self.vision) +
+
+                weight["football_iq"] * Player.mid_curve(self.football_iq) +
+
+                weight["positioning"] * Player.mid_curve(self.positioning) +
+                weight["composure"] * Player.mid_curve(self.composure) +
+                weight["decision_making"] * Player.mid_curve(self.decision_making) +
+
+                weight["work_rate"] * self.work_rate +
+                weight["aggression"] * self.aggression +
+
+                weight["pace"] * Player.high_curve(self.pace) +
+
+                weight["strength"] * Player.mid_curve(self.strength) +
+                weight["stamina"] * self.stamina +
+                weight["aerial"] * Player.mid_curve(self.aerial) +
+
+                weight["shot_stopping"] * Player.high_curve(self.shot_stopping) +
+                weight["handling"] * Player.mid_curve(self.handling) +
+                weight["distribution"] * Player.mid_curve(self.distribution) +
+                weight["command"] * Player.mid_curve(self.command)
+        )
+
+        # SCALES UP FROM MAX 20 CA TO 200
+        ability = ability * 10
 
         if position != self.position.getID():
             ability = ability * Player.SECONDARY_POSITION_FAMILIARITY
 
         return int(round(ability))
 
-    def getAmplificationFactor(self):
-        # NEEDED - SPACES OUT PLAYER RATINGS, PARTICULARLY IN TOP LEAGUES WHERE EACH RATING INCREASE BECOMES INCREASINGLY SIGNIFICANT
-        amplification_factor_mapping = {
-            0: 1.00,
-            65: 1.05,
-            70: 1.10,
-            75: 1.15,
-            80: 1.20,
-            83: 1.30,
-            86: 1.40,
-            89: 1.60
-        }
-
-        amplification_factor = 1
-        for ratingRequired, multiplier in amplification_factor_mapping.items():
-            if ratingRequired > self.calculateRating():
-                break
-            else:
-                amplification_factor = multiplier
-
-        return amplification_factor
 
     def canPlayPosition(self, position):
         primary = self.position.getID()
@@ -797,7 +1270,28 @@ class Player(Person):
         return self.id
 
     def getName(self):
-        return f"{self.firstname} {self.surname}"
+        if self.firstname != "":
+            return f"{self.firstname} {self.surname}"
+        else:
+            return f"{self.surname}"
+
+    def getAge(self, date):
+        cDay, cMonth, cYear = date.getDate()
+
+        age = cYear - self.birthYear
+
+        if cMonth == self.birthMonth and cDay <= self.birthDay:
+            age = age - 1
+        elif cMonth < self.birthMonth:
+            age = age - 1
+
+        return age
+
+    def getBirthday(self):
+        return f"{self.birthDay}/{self.birthMonth}/{self.birthYear}"
+
+    def getNationality(self):
+        return self.nationality
 
     def setPosition(self, positionObject):
         self.position = positionObject
@@ -806,7 +1300,9 @@ class Player(Person):
         return self.position
 
     def getAttributes(self):
-        return self.pace, self.shooting, self.passing, self.dribbling, self.defending, self.physical, self.reflexes, self.handling, self.positioning
+        return (self.passing, self.dribbling, self.finishing, self.defending, self.ball_control, self.delivery,
+                self.vision, self.football_iq, self.positioning, self.composure, self.decision_making, self.work_rate, self.aggression,
+                 self.pace, self.strength, self.stamina, self.aerial, self.shot_stopping, self.handling, self.distribution, self.command)
 
     def getContractLength(self):
         return self.contract_length
@@ -863,24 +1359,35 @@ class Player(Person):
                 tempDict[player.getID()] = player
             players = tempDict
 
+        # ADDS PLAYER TO PLAYERS DICT IF NOT IN ALREADY
+
+        temp_added = False
+        if self.id not in players.keys():
+            temp_added = True
+            players[self.id] = self
+
         abilities = {}
         for id, object in players.items():
             abilities[id] = object.calculateRating()
 
-        star_ratings = {}
-        min_ca = min(abilities.values())
-        max_ca = max(abilities.values())
+        import statistics
 
-        for id, ca in abilities.items():
-            if max_ca == min_ca:
-                star_ratings[id] = 3
-            else:
-                relative = (ca - min_ca) / (max_ca - min_ca)
-                stars = 1.5 + relative * 3.5
-                stars = round(stars * 2) / 2
-                star_ratings[id] = stars
+        average = statistics.mean(abilities.values())
+        std = statistics.stdev(abilities.values()) or 1
 
-        return star_emojis[star_ratings[self.id]]
+        z = (Player.calculateRating(self) - average) / std
+
+        stars = 3 + z
+        stars = round(stars * 2) / 2
+        stars = max(1.5, min(5, stars))
+
+
+        returnValue = star_emojis[stars]
+
+        if temp_added:
+            del players[self.id]
+
+        return returnValue
 
 class freeAgents:
 
@@ -894,6 +1401,8 @@ class freeAgents:
         self.full_name = full_name
         self.short_name = short_name
         self.players = []
+        self.first_team = []
+        self.youth_team = []
         self.managers = []
         self.fixtures = []
         self.reputation = 0
@@ -918,6 +1427,12 @@ class freeAgents:
     def getPlayers(self):
         return self.players
 
+    def getFirstTeam(self):
+        return self.first_team
+
+    def getYouthTeam(self):
+        return self.youth_team
+
     def addManager(self, manager):
         self.managers.append(manager)
 
@@ -925,10 +1440,10 @@ class freeAgents:
         return self.managers
 
     def getLeague(self):
-        return 0
+        return None
 
     def getNation(self):
-        return 0
+        return None
 
     def getReputation(self):
         return self.reputation
@@ -958,7 +1473,8 @@ class Club:
         "red": "🔴",
         "yellow": "🟡",
         "orange": "🟠",
-        "purple": "🟣"
+        "purple": "🟣",
+        "green": "🟢"
     }
 
     def __init__(self, id, full_name, short_name, nickname, founded_date, transfer_budget, primary_color, secondary_color, reputation, league):
@@ -968,7 +1484,11 @@ class Club:
         self.nickname = nickname
         self.founded_date = int(founded_date)
         self.transfer_budget = int(transfer_budget)
+
         self.players = []
+        self.first_team = []
+        self.youth_team = []
+
         self.fixtures = []
         self.primary_color = primary_color
         self.secondary_color = secondary_color
@@ -989,6 +1509,9 @@ class Club:
 
     def getLeague(self):
         return self.league
+
+    def setLeague(self, league):
+        self.league = int(league)
 
     def getID(self):
         return self.id
@@ -1026,6 +1549,12 @@ class Club:
 
     def getPlayers(self):
         return self.players
+
+    def getFirstTeam(self):
+        return self.first_team
+
+    def getYouthTeam(self):
+        return self.youth_team
 
     def setManager(self, manager):
         self.manager = manager
@@ -1093,12 +1622,10 @@ class Club:
         starting_eleven_total = 0
         bench_total = 0
         for index, player in enumerate(starting_eleven):
-            amplification_factor = player.getAmplificationFactor()
             position = formation[index]
-            starting_eleven_total = (player.calculateRating(position) ** amplification_factor) + starting_eleven_total
+            starting_eleven_total = (player.calculateRating(position)) + starting_eleven_total
         for index, player in enumerate(bench):
-            amplification_factor = player.getAmplificationFactor()
-            bench_total = (player.calculateRating() ** amplification_factor) + bench_total
+            bench_total = (player.calculateRating()) + bench_total
 
         bench_mean = bench_total / len(bench)
 
@@ -1111,7 +1638,7 @@ class Club:
     def calculateBettingOdds(self, game):
 
         # SPLITS TEAMS FURTHER APART IN BETTING ODDS
-        amplification_factor = 5
+        amplification_factor = 14
 
         clubs = game.getClubs()
         leagues = game.getLeagues()
@@ -1142,7 +1669,54 @@ class Club:
 
         return int(fractional)
 
+    def autoSplitPlayers(self, date):
 
+        if len(self.first_team) != 0:
+            self.first_team = []
+        if len(self.youth_team) != 0:
+            self.youth_team = []
+
+        for player in self.players:
+            if player.getAge(date) > 22:
+                self.first_team.append(player)
+            else:
+                self.youth_team.append(player)
+
+        # Checks if any players need to be demoted from first team to youth setup
+
+        total = 0
+        for player in self.first_team:
+            total = total + player.calculateRating()
+
+        mean = total/len(self.first_team)
+
+        demoted = []
+        for player in self.first_team:
+            change = player.calculateRating() / mean
+            if change < 0.8:
+                demoted.append(player)
+
+        for player in demoted:
+            self.first_team.remove(player)
+            self.youth_team.append(player)
+
+        # Goes through youth squad and checks if any players are first-team ready by comparing their CA with the player with the least ability under 30 in first team
+
+        self.first_team.sort(key=lambda p: p.calculateRating())
+        for player in self.first_team:
+            if player.getAge(date) < 30:
+                minPlayer = player
+                break
+
+        promoted = []
+
+        for player in self.youth_team:
+            if minPlayer.calculateRating() - player.calculateRating() < 4:
+                promoted.append(player)
+
+        for player in promoted:
+            self.youth_team.remove(player)
+            self.first_team.append(player)
 
 
 

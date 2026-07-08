@@ -31,6 +31,8 @@ def initialize_positions(players, positions):
         positionID = player.getPosition()
         if positionID in positions.keys():
             player.setPosition(positions[positionID])
+        else:
+            print(f"{player.getName()}: {positionID} was not found.")
 
 def initialize_loans(players, loans):
     for playerID, loanClub in loans.items():
@@ -56,12 +58,12 @@ def initialize_nations(nations, players, managers):
 
 def read_players_from_file():
     players = {}
-    with open("data/players.fmdata") as file:
+    with open("data/players.fmdata", "r", encoding="utf-8") as file:
         for line_number, line in enumerate(file, start=1):
             data = line.strip().split("-")
 
             # USED TO ENSURE CODE DOESN'T BREAK IF A PLAYER HAS AN BAD ENTRY
-            if len(data) != 19:
+            if len(data) != 34:
                 print(f"Line {line_number} has {len(data)} parts: {data}")
                 continue
 
@@ -114,7 +116,7 @@ def read_leagues_from_file():
     with open("data/leagues.fmdata") as file:
         for line in file:
             data = line.strip().split("-")
-            c = League(data[0], data[1], data[2], data[3], data[4])
+            c = League(data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9])
             leagues[int(data[0])] = c
     return leagues
 
