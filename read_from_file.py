@@ -3,7 +3,7 @@ from classes import *
 def initialize_stadiums(stadiums, clubs):
     for id, stadium in stadiums.items():
         club = stadium.getClub()
-        if club in clubs:
+        if club in clubs and club != 0:
             clubs[club].setStadium(stadium)
 
 def initialize_managers(managers, clubs):
@@ -96,7 +96,7 @@ def read_managers_from_file():
     with open("data/managers.fmdata") as file:
         for line in file:
             data = line.strip().split("-")
-            c = Manager(data[0], data[1], data[2], data[3], data[4], data[5], data[6])
+            c = Manager(data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7])
             managers[int(data[0])] = c
     return managers
 

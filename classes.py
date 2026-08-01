@@ -1,7 +1,7 @@
 from time import process_time
 
 from gamelogic import *
-
+import math
 import random
 import copy
 
@@ -72,7 +72,7 @@ class gameObject:
 
     def seasonUpdate(self):
 
-        # PROMOTION / RELEGATION LOGIC HERE
+        # PROMOTION / RELEGATION LOGIC
 
         for league in self.leagues.values():
 
@@ -113,9 +113,17 @@ class gameObject:
 
 
 
-        # REMOVES ALL LEAGUE TABLE DATA FROM CLUBS
+        # REMOVES ALL LEAGUE DATA FROM CLUBS
         for club in self.clubs.values():
             club.clearSeasonData()
+
+        # CLEARS ALL SEASON DATA FROM PLAYERS AND MOVES SEASON DATA TO HISTORY
+        day, month, year = self.dateObject.getDate()
+
+        for player in self.players.values():
+            player.seasonHistory[year] = player.seasonData
+            player.seasonData = {}
+
 
         # FIXTURE ARRANGEMENT
 
@@ -141,6 +149,45 @@ class gameObject:
                 tempDate = copy.deepcopy(self.dateObject)
                 league.arrangePlayoffs(tempDate)
                 self.playoffsArranged = True
+
+        # CHECKS FOR UNASSIGNED INJURIES, AND UPDATES CURRENT INJURIES
+        for id, player in self.players.items():
+            if player.isInjured and player.getInjuryObject() is None:
+
+                clubObject = self.clubs[player.getClub()]
+                fixtures_copy = clubObject.getFixtures().copy()
+                fixtures_copy.reverse()
+                for fixture in fixtures_copy:
+                    if fixture.getScore() is not None:
+                        fixture = fixture
+                        break
+
+                injuryObject = Injury(player.getID(), fixture)
+                player.setInjuryObject(injuryObject)
+
+            elif player.isInjured and player.getInjuryObject() is not None:
+                injury = player.getInjuryObject()
+                injury.incrementTimeElapsed()
+                if injury.getTimeElapsed() == injury.getLength():
+                    player.isInjured = False
+                    player.condition = 15
+                    player.setInjuryObject(None)
+
+
+
+
+
+
+
+        # INCREASES PLAYER CONDITION
+
+        for player in self.players.values():
+            player.condition = player.condition + 15
+            if player.condition > 100:
+                player.condition = 100
+            if player.isInjured:
+                player.condition = 0
+
 
     def afternoonDailyUpdate(self):
         match_checker(self)
@@ -171,7 +218,6 @@ class gameObject:
     def getNations(self):
         return self.nations
 
-
     def arrangeHoliday(self, day, month, year):
         self.onHoliday = True
         self.holidayDate = day, month, year
@@ -194,6 +240,7 @@ class Date:
         self.day = 0
         self.month = 0
         self.year = 0
+        self.yesterdayDate = None
 
     def setDate(self, day, month, year):
         self.day = day
@@ -244,6 +291,8 @@ class Date:
 
 
     def advance(self):
+        self.yesterdayDate = (self.day, self.month, self.year)
+
         Date.daysInMonth[1] = Date.days_in_february(self)
 
         if self.day == Date.daysInMonth[self.month - 1] and self.month == 12:
@@ -277,6 +326,9 @@ class Date:
         # Map result to weekday names
         days = ["Saturday", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
         return days[h]
+
+    def getYesterdayDate(self):
+        return self.yesterdayDate
 
 class Nation:
     def __init__(self, id, name, abbreviation, reputation):
@@ -346,13 +398,17 @@ class Stadium:
 
 
 class Manager(Person):
-    def __init__(self, id, firstname, surname, age, nationality, clubID, preferred_formation):
+    def __init__(self, id, firstname, surname, age, nationality, clubID, preferred_formation, preferred_playing_style):
         Person.__init__(self, id, firstname, surname, age, nationality)
         self.clubID = int(clubID)
         self.preferred_formation = preferred_formation
+        self.preferred_playing_style = preferred_playing_style
 
     def getPreferredFormation(self):
         return self.preferred_formation
+
+    def getPreferredPlayingStyle(self):
+        return self.preferred_playing_style
 
     def getName(self):
         return self.firstname + " " + self.surname
@@ -380,9 +436,13 @@ class PlayerManager(Person):
         self.playerShortlist = []
 
         self.preferred_formation = "4231"
+        self.preferred_playing_style = "Route One"
 
     def getPreferredFormation(self):
         return self.preferred_formation
+
+    def getPreferredPlayingStyle(self):
+        return self.preferred_playing_style
 
     def getName(self):
         return self.firstname + " " + self.surname
@@ -563,7 +623,7 @@ class League:
                         DateObject.advance()
                     match_date = DateObject.getDate()
                 else:
-                    for i in range(21): # Sets midweek fixtures to happen every third week
+                    for i in range(28): # Sets midweek fixtures to happen every month
                         DateObject.advance()
                     match_date = DateObject.getDate()
 
@@ -599,27 +659,54 @@ class League:
 
     def postMatchProcessing(self, fixture):
         if fixture.getType() == "league":
+
+            homeTeam, awayTeam = fixture.getTeams()
+
             # POST MATCH PROCESSING FOR LEAGUE MATCHES
 
             homeClub, awayClub = fixture.getTeams()
             homeScore, awayScore = fixture.getScore()
-            homeClub.incrementMatchesPlayed()
-            awayClub.incrementMatchesPlayed()
+            homeClub.leagueMatchesPlayed += 1
+            awayClub.leagueMatchesPlayed += 1
             for i in range(homeScore):
-                homeClub.incrementGoalsFor()
-                awayClub.incrementGoalsAgainst()
+                homeClub.leagueGoalsFor += 1
+                awayClub.leagueGoalsAgainst += 1
             for i in range(awayScore):
-                awayClub.incrementGoalsFor()
-                homeClub.incrementGoalsAgainst()
+                awayClub.leagueGoalsFor += 1
+                homeClub.leagueGoalsAgainst += 1
             if homeScore == awayScore:
-                homeClub.incrementDraws()
-                awayClub.incrementDraws()
+                homeClub.leagueDraws += 1
+                awayClub.leagueDraws += 1
             elif homeScore > awayScore:
-                homeClub.incrementWins()
-                awayClub.incrementLosses()
+                homeClub.leagueWins += 1
+                awayClub.leagueLosses += 1
             elif homeScore < awayScore:
-                awayClub.incrementWins()
-                homeClub.incrementLosses()
+                awayClub.leagueWins += 1
+                homeClub.leagueLosses += 1
+            if homeScore == 0:
+                awayClub.leagueCleanSheets += 1
+            if awayScore == 0:
+                homeClub.leagueCleanSheets += 1
+
+            statistics = fixture.getMatchStatistics()
+
+            homeClub.leagueTotalPossession += statistics["homePossession"]
+            awayClub.leagueTotalPossession += statistics["awayPossession"]
+            homeClub.leagueTotalPasses += statistics["homePasses"]
+            awayClub.leagueTotalPasses += statistics["awayPasses"]
+            homeClub.leagueTotalShots += statistics["homeShots"]
+            awayClub.leagueTotalShots += statistics["awayShots"]
+            homeClub.leagueTotalBigChances += statistics["homeShots"]
+            awayClub.leagueTotalBigChances += statistics["awayShots"]
+            homeClub.leagueTotalXG += statistics["homeXG"]
+            awayClub.leagueTotalXG += statistics["awayXG"]
+            homeClub.leagueTotalFouls += statistics["homeFouls"]
+            awayClub.leagueTotalFouls += statistics["awayFouls"]
+            homeClub.leagueTotalYellowCards += statistics["homeYellowCards"]
+            awayClub.leagueTotalYellowCards += statistics["awayYellowCards"]
+            homeClub.leagueTotalRedCards += statistics["homeRedCards"]
+            awayClub.leagueTotalRedCards += statistics["awayRedCards"]
+
 
         elif fixture.getType() == "knockout": # PLAYOFF MATCH PROCESSING
             self.playoffObject.postMatchProcessing(fixture)
@@ -647,7 +734,11 @@ class League:
 
         preferred_matchday = "Saturday"
 
-        self.playoffObject = knockoutTournament(None, f"{self.name} Playoffs", teams, DateObject, preferred_matchday, self.id)
+        rules = {
+            "two_legged_semi_final": True,
+        }
+
+        self.playoffObject = knockoutTournament(None, f"{self.name} Playoffs", teams, DateObject, preferred_matchday, self.id, rules)
 
 
 class knockoutTournament:
@@ -661,18 +752,24 @@ class knockoutTournament:
         64: "Round of 64"
     }
 
-    def __init__(self, id, name, teams, DateObject, preferred_matchday, parentLeagueID = None):
+    def __init__(self, id, name, teams, DateObject, preferred_matchday, parentLeagueID = None, rules = None):
 
-        self.id = id
+        if id is not None:
+            self.id = int(id)
+        else:
+            self.id = None
+
         self.name = name
         self.teams = teams
         self.DateObject = DateObject
         self.preferred_matchday = preferred_matchday
         self.currentRound = None
+        self.currentRoundTwoLegged = False
         self.currentRoundFixtures = []
         self.currentRoundTeams = teams
         self.nextRoundTeams = []
         self.parentLeagueID = parentLeagueID
+        self.rules = rules
 
         size = self.getTournamentSize()
         self.addByes(size)
@@ -712,19 +809,74 @@ class knockoutTournament:
         for i in range(7):
             self.DateObject.advance()
 
+        self.currentRoundTwoLegged = False
+        # Checks if round should be two legged
+        if self.currentRound == "Semi Final" and "two_legged_semi_final" in self.rules.keys():
+            self.currentRoundTwoLegged = True
+            tempDate = copy.deepcopy(self.DateObject)
+            for i in range(7):
+                tempDate.advance()
+            second_leg_date = tempDate.getDate()
+        else:
+            leg = None
+
         for i in range(0, len(self.currentRoundTeams), 2): # ITERATES EVERY OTHER TEAM (EACH FIXTURE CONTAINS TWO TEAMS)
-            f = Fixture(None, self.currentRoundTeams[i], self.currentRoundTeams[i+1], self.parentLeagueID, None, "knockout", self.currentRound, self.DateObject.getDate())
+
+            if self.currentRoundTwoLegged:
+                leg = 1
+
+            f = Fixture(None, self.currentRoundTeams[i], self.currentRoundTeams[i + 1], self.parentLeagueID, self.id,
+                        "knockout", self.currentRound, self.DateObject.getDate(), None, leg)
             self.currentRoundFixtures.append(f)
             f.addFixtureToClubLists()
 
+            if self.currentRoundTwoLegged:
+                leg = leg + 1
+                f2 = Fixture(None, self.currentRoundTeams[i + 1], self.currentRoundTeams[i], self.parentLeagueID,
+                             self.id,
+                             "knockout", self.currentRound, second_leg_date, None, leg)
+                f.setPartnerFixture(f2)
+                f2.setPartnerFixture(f)
+                self.currentRoundFixtures.append(f2)
+                f2.addFixtureToClubLists()
 
     def postMatchProcessing(self, fixture):
-        homeScore, awayScore = fixture.getScore()
         homeTeam, awayTeam = fixture.getTeams()
-        if homeScore > awayScore:
-            self.nextRoundTeams.append(homeTeam)
-        elif awayScore > homeScore:
-            self.nextRoundTeams.append(awayTeam)
+
+        if self.currentRoundTwoLegged and fixture.getLeg() == 2:
+            firstLeg = fixture.getPartnerFixture()
+            firstLegHomeScore, firstLegAwayScore = firstLeg.getScore()
+            secondLegHomeScore, secondLegAwayScore = fixture.getScore()
+
+            if fixture.getPenaltyScore() is not None:
+                homePens, awayPens = fixture.getPenaltyScore()
+
+            aggHome = firstLegAwayScore + secondLegHomeScore
+            aggAway = firstLegHomeScore + secondLegAwayScore
+
+            if aggHome > aggAway:
+                self.nextRoundTeams.append(homeTeam)
+            elif aggHome < aggAway:
+                self.nextRoundTeams.append(awayTeam)
+            elif homePens > awayPens:
+                self.nextRoundTeams.append(homeTeam)
+            elif homePens < awayPens:
+                self.nextRoundTeams.append(awayTeam)
+
+        elif not self.currentRoundTwoLegged:
+            homeScore, awayScore = fixture.getScore()
+
+            if fixture.getPenaltyScore() is not None:
+                homePens, awayPens = fixture.getPenaltyScore()
+
+            if homeScore > awayScore:
+                self.nextRoundTeams.append(homeTeam)
+            elif awayScore > homeScore:
+                self.nextRoundTeams.append(awayTeam)
+            elif homePens > awayPens:
+                self.nextRoundTeams.append(homeTeam)
+            elif homePens < awayPens:
+                self.nextRoundTeams.append(awayTeam)
 
         if self.roundChecker():
             self.updateRound()
@@ -747,7 +899,7 @@ class knockoutTournament:
 
 
 class Fixture:
-    def __init__(self, id, homeClub, awayClub, leagueID, tournamentID, type, stage=None, date=None, score=None):
+    def __init__(self, id, homeClub, awayClub, leagueID, tournamentID, type, stage=None, date=None, score=None, leg=None):
 
         if id is not None:
             self.id = int(id)
@@ -759,6 +911,15 @@ class Fixture:
         self.stage = stage
         self.homeScore = score
         self.awayScore = score
+        self.homePenaltyScore = None
+        self.awayPenaltyScore = None
+        self.leg = leg
+        self.partnerFixture = None
+        self.aggregateHomeScore = 0
+        self.aggregateAwayScore = 0
+
+        self.matchEvents = None
+        self.matchStatistics = None
 
         self.leagueID = int(leagueID)
 
@@ -766,6 +927,20 @@ class Fixture:
             self.tournamentID = int(tournamentID)
         else:
             self.tournamentID = None
+
+        self.name = f"{self.homeClub.getName()} {self.awayClub.getName()}"
+
+    def getName(self):
+        return self.name
+
+    def getID(self):
+        return self.id
+
+    def setPartnerFixture(self, partner):
+        self.partnerFixture = partner
+
+    def getPartnerFixture(self):
+        return self.partnerFixture
 
     def setClubs(self, homeClub, awayClub):
         self.homeClub = homeClub
@@ -792,19 +967,50 @@ class Fixture:
     def getStage(self):
         return self.stage
 
+    def getLeg(self):
+        return self.leg
+
     def getScore(self):
         if self.homeScore is None and self.awayScore is None:
             return None
         else:
             return self.homeScore, self.awayScore
 
+    def getPenaltyScore(self):
+        if self.homePenaltyScore is None and self.awayPenaltyScore is None:
+            return None
+        else:
+            return self.homePenaltyScore, self.awayPenaltyScore
+
+    def getAggregateScore(self):
+        return self.aggregateHomeScore, self.aggregateAwayScore
+
     def setScore(self, homeScore, awayScore):
         self.homeScore = int(homeScore)
         self.awayScore = int(awayScore)
 
+    def setPenaltyScore(self, homePenaltyScore, awayPenaltyScore):
+        self.homePenaltyScore = int(homePenaltyScore)
+        self.awayPenaltyScore = int(awayPenaltyScore)
+
+    def updateAggregateScore(self, homeScore, awayScore):
+        self.aggregateHomeScore = self.aggregateHomeScore + int(homeScore)
+        self.aggregateAwayScore = self.aggregateAwayScore + int(awayScore)
+
     def addFixtureToClubLists(self):
         self.homeClub.addFixture(self)
         self.awayClub.addFixture(self)
+
+    def getMatchEvents(self):
+        return self.matchEvents
+    def getMatchStatistics(self):
+        return self.matchStatistics
+    def setMatchEvents(self, matchEvents):
+        self.matchEvents = matchEvents
+    def setMatchStatistics(self, matchStatistics):
+        self.matchStatistics = matchStatistics
+
+
 
 class Player:
 
@@ -999,7 +1205,7 @@ class Player:
         "command": 0
     }
 
-    SECONDARY_POSITION_FAMILIARITY = 0.9
+    SECONDARY_POSITION_FAMILIARITY = 0.7
 
     secondary_position_mapping = {
         1: [],
@@ -1055,6 +1261,16 @@ class Player:
         self.height = int(height)
         self.current_wage = int(current_wage)
         self.contract_length = int(contract_length)
+
+        self.isSentOff = False
+        self.condition = 100
+        self.isInjured = False
+        self.injuryObject = None
+
+        self.seasonHistory = {}
+
+        self.seasonData = {}
+
 
     def calculateMarketValue(self, game):
 
@@ -1340,6 +1556,12 @@ class Player:
         else:
             self.loanClubID = None
 
+    def getInjuryObject(self):
+        return self.injuryObject
+
+    def setInjuryObject(self, injuryObject):
+        self.injuryObject = injuryObject
+
     def calculateStarRating(self, players):
 
         star_emojis = {
@@ -1388,6 +1610,104 @@ class Player:
             del players[self.id]
 
         return returnValue
+
+    def addTournamentToSeasonData(self, tournamentID):
+        self.seasonData[tournamentID] = seasonData()
+
+class seasonData:
+
+    def __init__(self):
+        self.appearances = 0
+        self.subAppearances = 0
+        self.goals = 0
+        self.assists = 0
+        self.yellowCards = 0
+        self.redCards = 0
+        self.cleanSheets = 0
+
+
+class Injury:
+
+    football_injuries = [
+        {"name": "Knock", "min_days": 1, "max_days": 3, "probability": 0.25},
+        {"name": "Bruise", "min_days": 1, "max_days": 7, "probability": 0.18},
+        {"name": "Muscle fatigue", "min_days": 1, "max_days": 4, "probability": 0.15},
+        {"name": "Tight hamstring", "min_days": 2, "max_days": 7, "probability": 0.10},
+        {"name": "Tight calf", "min_days": 2, "max_days": 7, "probability": 0.08},
+        {"name": "Minor muscle strain", "min_days": 3, "max_days": 10, "probability": 0.08},
+        {"name": "Hamstring strain", "min_days": 14, "max_days": 84, "probability": 0.07},
+        {"name": "Ankle sprain", "min_days": 7, "max_days": 84, "probability": 0.06},
+        {"name": "Groin strain", "min_days": 14, "max_days": 84, "probability": 0.05},
+        {"name": "Quadriceps strain", "min_days": 7, "max_days": 56, "probability": 0.04},
+        {"name": "Calf strain", "min_days": 14, "max_days": 70, "probability": 0.04},
+        {"name": "Hip flexor strain", "min_days": 14, "max_days": 56, "probability": 0.03},
+        {"name": "Knee sprain", "min_days": 14, "max_days": 84, "probability": 0.03},
+        {"name": "MCL injury", "min_days": 14, "max_days": 84, "probability": 0.02},
+        {"name": "Patellar tendinitis", "min_days": 14, "max_days": 168, "probability": 0.02},
+        {"name": "Achilles tendinitis", "min_days": 14, "max_days": 168, "probability": 0.02},
+        {"name": "Shin splints", "min_days": 14, "max_days": 84, "probability": 0.02},
+        {"name": "Concussion", "min_days": 7, "max_days": 56, "probability": 0.02},
+        {"name": "Back injury", "min_days": 14, "max_days": 168, "probability": 0.02},
+        {"name": "Illness", "min_days": 1, "max_days": 14, "probability": 0.06},
+        {"name": "Meniscus tear", "min_days": 28, "max_days": 168, "probability": 0.01},
+        {"name": "Stress fracture", "min_days": 42, "max_days": 168, "probability": 0.01},
+        {"name": "Fracture", "min_days": 42, "max_days": 182, "probability": 0.01},
+        {"name": "Dislocated shoulder", "min_days": 28, "max_days": 112, "probability": 0.005},
+        {"name": "Hernia", "min_days": 28, "max_days": 84, "probability": 0.005},
+        {"name": "PCL injury", "min_days": 28, "max_days": 252, "probability": 0.003},
+        {"name": "High ankle sprain", "min_days": 42, "max_days": 112, "probability": 0.003},
+        {"name": "Achilles rupture", "min_days": 168, "max_days": 365, "probability": 0.002},
+        {"name": "ACL tear", "min_days": 252, "max_days": 365, "probability": 0.002},
+    ]
+
+    def __init__(self, playerID, fixtureSustainedIn):
+        self.playerID = playerID
+
+        # SELECTS INJURY
+
+        cumulative = 0
+        number = random.random()
+        for injuryType in Injury.football_injuries:
+            cumulative += injuryType["probability"]
+            if number <= cumulative:
+                break
+
+        self.name = injuryType["name"]
+        self.min_days = injuryType["min_days"]
+        self.max_days = injuryType["max_days"]
+        self.fixtureSustainedIn = fixtureSustainedIn
+
+        self.length = random.randint(self.min_days, self.max_days)
+        self.timeElapsed = 0
+
+    def getFixtureSustainedIn(self):
+        return self.fixtureSustainedIn
+
+    def getName(self):
+        return self.name
+
+    def getTimeElapsed(self):
+        return self.timeElapsed
+
+    def getLength(self):
+        return self.length
+
+    def incrementTimeElapsed(self):
+        self.timeElapsed += 1
+
+    def getMinMaxDays(self):
+        return self.min_days, self.max_days
+
+    def getMinMaxDaysRemaining(self):
+        return self.min_days - self.timeElapsed, self.max_days - self.timeElapsed
+
+
+
+
+
+
+
+
 
 class freeAgents:
 
@@ -1497,15 +1817,25 @@ class Club:
         self.manager = 0
         self.stadium = 0
         self.formation = None
+        self.playing_style = None
         self.starting_eleven = []
         self.bench = []
 
-        self.matchesPlayed = 0
-        self.wins = 0
-        self.losses = 0
-        self.draws = 0
-        self.goalsFor = 0
-        self.goalsAgainst = 0
+        self.leagueMatchesPlayed = 0
+        self.leagueWins = 0
+        self.leagueLosses = 0
+        self.leagueDraws = 0
+        self.leagueGoalsFor = 0
+        self.leagueGoalsAgainst = 0
+        self.leagueCleanSheets = 0
+        self.leagueTotalPossession = 0
+        self.leagueTotalPasses = 0
+        self.leagueTotalShots = 0
+        self.leagueTotalBigChances = 0
+        self.leagueTotalXG = 0
+        self.leagueTotalFouls = 0
+        self.leagueTotalYellowCards = 0
+        self.leagueTotalRedCards = 0
 
     def getLeague(self):
         return self.league
@@ -1577,7 +1907,7 @@ class Club:
     def getFixtures(self):
         return self.fixtures
 
-    def autoPickTeam(self):
+    def autoPickTeam(self, type="match"):
         team_sheet = {}
         starting_eleven = []
         bench = []
@@ -1586,25 +1916,126 @@ class Club:
         # GETS PREFERRED FORMATION FROM MANAGER
         formation = Club.FORMATIONS[self.manager.getPreferredFormation()]
 
-        # SELECTS THE BEST PLAYER FOR EACH POSITION
+        # GETS PREFERRED PLAYING STYLE FROM MANAGER
+        playing_style = self.manager.getPreferredPlayingStyle()
 
-        # Eventually will filter through injured players and remove them
+
+        # Filters through injured players and remove them
         available_players = self.players.copy()
+        players_to_remove = []
+        for player in available_players:
+            if player.isInjured:
+                players_to_remove.append(player)
+        for player in players_to_remove:
+            available_players.remove(player)
 
+        # ARRANGES POSITIONS FROM LEAST POPULATED TO MOST
+        position_playerCount = []
         for position in formation:
-            best_player = None
+            count = 0
             for player in available_players:
-                # CHECKS IF THERE IS NO CURRENTLY SELECTED BEST PLAYER
-                if best_player is None:
-                    best_player = player
-                else:
-                    # Eventually will also consider fitness when considering player ratings here
-                    if (player.calculateRating(position) > best_player.calculateRating(position)) and player.canPlayPosition(position) == True:
-                        best_player = player
-            starting_eleven.append(best_player)
+                if player.canPlayPosition(position):
+                    count += 1
+            position_playerCount.append((position, count))
 
-            # REMOVES SELECTED PLAYER FROM AVAILABLE PLAYERS
-            available_players.remove(best_player)
+        new_position_order = []
+        while len(position_playerCount) != 0:
+            least_tuple = None
+            least_count = 999
+            for item in position_playerCount:
+                position, count = item
+                if count < least_count:
+                    least_tuple = item
+                    least_count = count
+            new_position_order.append(least_tuple[0])
+            position_playerCount.remove(least_tuple)
+
+        position_player = []
+        if type == "match":
+            for position in new_position_order:
+                candidates = []
+                scores = []
+                for player in available_players:
+                    if player.canPlayPosition(position):
+                        score = player.calculateRating(position) * (player.condition / 100)
+                        candidates.append(player)
+                        scores.append(score)
+
+                if len(candidates) != 0:
+
+                # IF CANDIDATES ISN'T EMPTY
+
+                    # Uses softmax - finds difference between raw ratings and exponentiates it - makes key players play almost every week whilst positions with good depth rotate
+                    TEMPERATURE = 15  # lower = sharper preference for the best player
+
+                    max_score = max(scores)
+                    weights = [math.exp((s - max_score) / TEMPERATURE) for s in scores]
+
+                    chosen = random.choices(candidates, weights=weights, k=1)[0]
+
+                    position_player.append((position, chosen))
+                    available_players.remove(chosen)
+
+                else:
+
+                    # IF THERE ARE NO PLAYERS TO PLAY THE POSITION
+
+                    best_player = None
+                    for player in available_players:
+                        if best_player is None:
+                            best_player = player
+                        else:
+                            if ((player.calculateRating(position) * player.condition > best_player.calculateRating(
+                                    position) * best_player.condition)
+                                    and player.canPlayPosition(position) == True):
+                                best_player = player
+
+                    position_player.append((position, best_player))
+                    available_players.remove(best_player)
+
+
+
+        elif type == "bestXI":
+            for position in new_position_order:
+                best_player = None
+                for player in available_players:
+                    if player.canPlayPosition(position):
+                        # CHECKS IF THERE IS NO CURRENTLY SELECTED BEST PLAYER
+                        if best_player is None:
+                            best_player = player
+                        else:
+                            if ((player.calculateRating(position) * player.condition > best_player.calculateRating(
+                                    position) * best_player.condition)
+                                    and player.canPlayPosition(position) == True):
+                                best_player = player
+                    else:
+                        continue
+
+                # SKIPS IF A PLAYER CAN PLAY THE POSITION IF NONE CAN
+                if best_player is None:
+                    for player in available_players:
+                        if best_player is None:
+                            best_player = player
+                        else:
+                            if ((player.calculateRating(position) * player.condition > best_player.calculateRating(
+                                    position) * best_player.condition)
+                                    and player.canPlayPosition(position) == True):
+                                best_player = player
+
+
+                position_player.append((position, best_player))
+
+                # REMOVES SELECTED PLAYER FROM AVAILABLE PLAYERS
+                available_players.remove(best_player)
+
+        # PUTS THEM BACK INTO FORMATION ORDER
+        for position in formation:
+            for item in position_player:
+                intended_position, player = item
+                if intended_position == position:
+                    starting_eleven.append(player)
+                    position_player.remove(item)
+                    break
 
 
         # ORGANIZES REMAINING PLAYERS BASED ON ABILITY TO GET BENCH
@@ -1614,11 +2045,11 @@ class Club:
         for i in range(MAX_SIZE_OF_BENCH):
             bench.append(available_players[i])
 
-        return formation, starting_eleven, bench
+        return formation, starting_eleven, bench, playing_style
 
     def calculateTeamStrength(self):
 
-        formation, starting_eleven, bench = Club.autoPickTeam(self)
+        formation, starting_eleven, bench, playing_style = Club.autoPickTeam(self, "bestXI")
         starting_eleven_total = 0
         bench_total = 0
         for index, player in enumerate(starting_eleven):
@@ -1634,29 +2065,31 @@ class Club:
         return round(score)
 
 
-    # USED IN MEDIA PREDICTION
+    # USED IN MEDIA PREDICTION - uses softmax function
     def calculateBettingOdds(self, game):
 
-        # SPLITS TEAMS FURTHER APART IN BETTING ODDS
-        amplification_factor = 14
-
-        clubs = game.getClubs()
         leagues = game.getLeagues()
         leagueID = self.league
         leagueObject = leagues[leagueID]
         clubsInLeague = leagueObject.getClubs()
+        clubs = game.getClubs()
 
-        # GETTING TOTAL TEAM STRENGTH OF ALL SIDES IN LEAGUE
-        total = 0
+        temperature = 60
+
+        scores = []
+
         for club in clubsInLeague:
-            total = total + clubs[club].calculateTeamStrength() ** amplification_factor
+            clubObject = clubs[club]
+            strength = clubObject.calculateTeamStrength()
+            scores.append(math.exp(strength / temperature))
 
-        # CALCULATING RATING INTO PROBABILITY
-        probability = self.calculateTeamStrength() ** amplification_factor/ total
+        total = sum(scores)
 
-        # CONVERTS TO FRACTIONAL ODDS
-        decimal_odds = 1/probability
+        my_score = math.exp(self.calculateTeamStrength() / temperature)
 
+        probability = my_score / total
+
+        decimal_odds = 1 / probability
         fractional = decimal_odds - 1
 
         # ONLY ROUNDS LONG ODDS
@@ -1668,6 +2101,7 @@ class Club:
             fractional = round(fractional)
 
         return int(fractional)
+
 
     def autoSplitPlayers(self, date):
 
@@ -1723,49 +2157,47 @@ class Club:
 
 
     def getTeamSheet(self):
-        return self.formation, self.starting_eleven, self.bench
+        return self.formation, self.starting_eleven, self.bench, self.playing_style
 
-    def setTeamSheet(self, formation, starting_eleven, bench):
+    def setTeamSheet(self, formation, starting_eleven, bench, playing_style):
         self.formation = formation
         self.starting_eleven = starting_eleven
         self.bench = bench
+        self.playing_style = playing_style
 
     def getMatchesPlayed(self):
-        return self.matchesPlayed
-    def incrementMatchesPlayed(self):
-        self.matchesPlayed += 1
+        return self.leagueMatchesPlayed
     def getWins(self):
-        return self.wins
-    def incrementWins(self):
-        self.wins += 1
+        return self.leagueWins
     def getLosses(self):
-        return self.losses
-    def incrementLosses(self):
-        self.losses += 1
+        return self.leagueLosses
     def getDraws(self):
-        return self.draws
-    def incrementDraws(self):
-        self.draws += 1
+        return self.leagueDraws
     def getGoalsFor(self):
-        return self.goalsFor
-    def incrementGoalsFor(self):
-        self.goalsFor += 1
+        return self.leagueGoalsFor
     def getGoalsAgainst(self):
-        return self.goalsAgainst
-    def incrementGoalsAgainst(self):
-        self.goalsAgainst += 1
+        return self.leagueGoalsAgainst
     def getGoalDifference(self):
-        return self.goalsFor - self.goalsAgainst
+        return self.leagueGoalsFor - self.leagueGoalsAgainst
     def getPoints(self):
-        points = (self.wins * 3) + self.draws
+        points = (self.leagueWins * 3) + self.leagueDraws
         return points
     def clearSeasonData(self):
-        self.matchesPlayed = 0
-        self.wins = 0
-        self.draws = 0
-        self.losses = 0
-        self.goalsFor = 0
-        self.goalsAgainst = 0
+        self.leagueMatchesPlayed = 0
+        self.leagueWins = 0
+        self.leagueLosses = 0
+        self.leagueDraws = 0
+        self.leagueGoalsFor = 0
+        self.leagueGoalsAgainst = 0
+        self.leagueCleanSheets = 0
+        self.leagueTotalPossession = 0
+        self.leagueTotalPasses = 0
+        self.leagueTotalShots = 0
+        self.leagueTotalBigChances = 0
+        self.leagueTotalXG = 0
+        self.leagueTotalFouls = 0
+        self.leagueTotalYellowCards = 0
+        self.leagueTotalRedCards = 0
 
 
 class Position:

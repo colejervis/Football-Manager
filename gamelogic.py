@@ -2,6 +2,11 @@ from read_from_file import *
 from classes import *
 from cli import *
 from random import randint
+from classes import *
+from read_from_file import *
+from match_engine import simulate_match
+from match_engine import simulate_match_extra_time
+from match_engine import simulate_penalties
 
 def read_from_file_function():
     players = read_players_from_file()
@@ -55,24 +60,108 @@ def game_initialisation(players, positions, clubs, leagues, managers, stadiums, 
 
 
 
-def match_sim_test(game, fixture):
+def match_sim_processing(game, fixture):
+    homeTeam, awayTeam = fixture.getTeams()
 
-    homeScore = randint(1, 4)
-    awayScore = randint(1, 4)
+    tournamentID = fixture.getLeagueID()
+    if tournamentID is None:
+        tournamentID = fixture.getTournamentID()
 
-    # EXTRA TIME
-    if fixture.getType() == "knockout":
-        while homeScore == awayScore:
-            homeScore = homeScore + randint(1, 4)
-            awayScore = awayScore + randint(1, 4)
+    # REGISTERS ALL PLAYERS FOR TOURNAMENT
 
-    # SENDS FIXTURE DATA TO LEAGUE / COMPETITION TO BE PROCESSED
-    fixture.setScore(homeScore, awayScore)
-    leagues = game.getLeagues()
-    leagueID = fixture.getLeagueID()
-    leagueObject = leagues[leagueID]
-    leagueObject.postMatchProcessing(fixture)
+    for player in homeTeam.getPlayers():
+        if tournamentID not in player.seasonData.keys():
+            player.addTournamentToSeasonData(tournamentID)
+    for player in awayTeam.getPlayers():
+        if tournamentID not in player.seasonData.keys():
+            player.addTournamentToSeasonData(tournamentID)
 
+    simulate_match(fixture, game)
+
+    # REMOVING RED CARDS
+    for player in homeTeam.getPlayers():
+        player.isSentOff = False
+    for player in awayTeam.getPlayers():
+        player.isSentOff = False
+
+    if fixture.getType() == "league":
+        leagues = game.getLeagues()
+        leagueID = fixture.getLeagueID()
+        leagueObject = leagues[leagueID]
+        leagueObject.postMatchProcessing(fixture)
+
+
+    elif fixture.getType() == "knockout":
+
+        if fixture.getLeg() is None:
+            homeScore, awayScore = fixture.getScore()
+            if homeScore == awayScore:
+                simulate_match_extra_time(fixture, game)
+                homeScore, awayScore = fixture.getScore()
+            if homeScore == awayScore:
+                simulate_penalties(fixture)
+
+
+        if fixture.getLeg() == 2:
+            homeScore, awayScore = fixture.getScore()
+            firstLeg = fixture.getPartnerFixture()
+            firstLegHomeScore, firstLegAwayScore = firstLeg.getScore()  # leg1: TeamA home, TeamB away
+
+            # leg2 home = TeamB, away = TeamA - VENUE HAS BEEN SWAPPED
+            aggHome = firstLegAwayScore + homeScore  # TeamB's aggregate
+            aggAway = firstLegHomeScore + awayScore  # TeamA's aggregate
+
+            if aggHome == aggAway:
+                simulate_match_extra_time(fixture, game)
+                homeScore, awayScore = fixture.getScore()
+                aggHome = firstLegAwayScore + homeScore  # TeamB's aggregate
+                aggAway = firstLegHomeScore + awayScore  # TeamA's aggregate
+
+            if aggHome == aggAway:
+                simulate_penalties(fixture)
+
+        if fixture.getLeagueID() is not None:
+            leagues = game.getLeagues()
+            leagueObject = leagues[fixture.getLeagueID()]
+            leagueObject.postMatchProcessing(fixture)
+
+        elif fixture.getTournamentID() is not None:
+            print("") # TO BE ADDED WHEN FA CUP IS ADDED
+
+    # ADDS PLAYER DATA TO PLAYER
+
+    events = fixture.getMatchEvents()
+    for event in events:
+        if event["type"] == "chance":
+            if event["outcome"] == "goal":
+                player = event["scorer"]
+                player.seasonData[tournamentID].goals += 1
+
+                if event["assister"] is not None:
+                    event["assister"].seasonData[tournamentID].assists += 1
+
+        elif event["type"] == "foul":
+            player = event["player"]
+            if event["outcome"] == "red":
+                player.seasonData[tournamentID].redCards += 1
+            elif event["outcome"] == "yellow":
+                player.seasonData[tournamentID].yellowCards += 1
+
+        elif event["type"] == "substitution":
+            player = event["joining-match"]
+            player.seasonData[tournamentID].subAppearances += 1
+
+    homeScore, awayScore = fixture.getScore()
+
+    formation, starting_eleven, bench, playingStyle = homeTeam.getTeamSheet()
+    homeGoalkeeper = starting_eleven[0]
+    if awayScore == 0:
+        homeGoalkeeper.seasonData[tournamentID].cleanSheets += 1
+
+    formation, starting_eleven, bench, playingStyle = awayTeam.getTeamSheet()
+    awayGoalkeeper = starting_eleven[0]
+    if homeScore == 0:
+        awayGoalkeeper.seasonData[tournamentID].cleanSheets += 1
 
 def match_checker(game):
     dateObject = game.getDateObject()
@@ -87,7 +176,7 @@ def match_checker(game):
                 continue
 
             if fixture.getDate() == dateObject.getDate():
-                match_sim_test(game, fixture)
+                match_sim_processing(game, fixture)
 
             processed.add(id(fixture))
 
@@ -111,6 +200,19 @@ def game_loop(game):
 
         # RUNS MENU IF NOT AUTO-SIMULATING
         if game.getHolidayStatus() is not True:
+
+            # CHECKS IF USER'S TEAM HAD PLAYED THE DAY BEFORE, before running main menu
+            dateObject, players, positions, clubs, leagues, managers, stadiums, nations = game.getAll()
+            playerManagerID = len(managers)
+            playerManagerClubID = clubs[managers[playerManagerID].getClub()].getID()
+            clubObject = clubs[playerManagerClubID]
+            if dateObject.getYesterdayDate() is not None:
+                yDay, yMonth, yYear = dateObject.getYesterdayDate()
+                for fixture in clubObject.getFixtures():
+                    if fixture.getDate() == (yDay, yMonth, yYear):
+                        view_fixture_menu(fixture, game)
+
+
             value = game_main_menu(game)
             if value == "Return to main menu":
                 break

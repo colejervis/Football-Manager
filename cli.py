@@ -1,4 +1,8 @@
+from classes import seasonData
 
+
+def safe_divide(numerator, denominator):
+    return numerator / denominator if denominator else 0
 
 def seperator():
     return "─═─" * 20
@@ -39,6 +43,53 @@ def search(data):
             selectedItem = SearchEntriesList[userInput]
             return selectedItem, SearchEntries[selectedItem]
 
+def fixture_search(fixtures, game):
+    while True:
+
+        clubs = game.getClubs()
+
+        print("Home Club:")
+        homeClubID, homeClub = search(clubs)
+        print("Away Club:")
+        awayClubID, awayClub = search(clubs)
+
+        SearchEntries = []
+
+        for fixture in fixtures:
+            homeTeam, awayTeam = fixture.getTeams()
+            if homeTeam == homeClub and awayTeam == awayClub:
+                SearchEntries.append(fixture)
+
+        if len(SearchEntries) == 0:
+            print(f"❌ no fixtures found for {homeClub} vs {awayClub}!")
+        elif len(SearchEntries) == 1:
+            for fixture in SearchEntries:
+                return fixture
+        else:
+            print(f"Found {len(SearchEntries)} search results:")
+            SearchEntriesList = []
+            for fixture in SearchEntries:
+                SearchEntriesList.append(fixture)
+            for position, fixture in enumerate(SearchEntriesList, start=1):
+                homeTeam, awayTeam = fixture.getTeams()
+                day, month, year = fixture.getDate()
+                if fixture.getScore() is None:
+                    print(f"{position} | {homeTeam.getName()} - {awayTeam.getName()} | {day}/{month}/{year}")
+                else:
+                    homeScore, awayScore = fixture.getScore()
+                    print(f"{position} | {homeTeam.getName()} {homeScore} - {awayTeam.getName()} {awayScore} | {day}/{month}/{year}")
+            passed = False
+            while not passed:
+                userInput = input("🔢 Please select the number corresponding to which item you want to select: ")
+                try:
+                    userInput = int(userInput) - 1
+                    passed = True
+                except ValueError:
+                    print("🔢 Please enter a number.")
+
+            selectedItem = SearchEntriesList[userInput]
+            return selectedItem
+
 def option_menu(options, go_back_allowed = False, customText = False):
 
     number_emoji_mapping = {
@@ -51,7 +102,17 @@ def option_menu(options, go_back_allowed = False, customText = False):
         7: "7️⃣",
         8: "8️⃣",
         9: "9️⃣",
-        10: "1️⃣0️⃣"
+        10: "1️⃣0️⃣",
+        11: "1️⃣1️⃣",
+        12: "1️⃣2️⃣",
+        13: "1️⃣3️⃣",
+        14: "1️⃣4️⃣",
+        15: "1️⃣5️⃣",
+        16: "1️⃣6️⃣",
+        17: "1️⃣7️⃣",
+        18: "1️⃣8️⃣",
+        19: "1️⃣9️⃣",
+        20: "2️⃣0️⃣",
     }
 
     options = options.copy()
@@ -118,6 +179,85 @@ def view_stadium_menu(stadiumID, stadium, game):
         view_club_menu(clubID, club, game)
     elif ui == 2:
         return
+
+def view_fixture_menu(fixture, game):
+    homeTeam, awayTeam = fixture.getTeams()
+
+    events = fixture.getMatchEvents()
+    matchStatistics = fixture.getMatchStatistics()
+
+    if fixture.getScore() is not None:
+        homeScore, awayScore = fixture.getScore()
+
+        print(seperator())
+        print(f"⚽ MATCH REPORT - {homeTeam.getFullName()} {homeScore} - {awayScore} {awayTeam.getFullName()}")
+        if fixture.getPenaltyScore() is not None:
+            homePenalty, awayPenalty = fixture.getPenaltyScore()
+            print(f"{homeTeam.getFullName()} {homePenalty} - {awayPenalty} {awayTeam.getFullName()} on penalties")
+        print(seperator())
+
+
+        print(f"🤝 Possession: {homeTeam.getShortName()} {matchStatistics['homePossession']}% - {awayTeam.getShortName()} {matchStatistics['awayPossession']}%")
+        print(f"🥾 Passes: {homeTeam.getShortName()} {matchStatistics['homePasses']} - {awayTeam.getShortName()} {matchStatistics['awayPasses']}")
+        print(f"🎯 Shots: {homeTeam.getShortName()} {matchStatistics['homeShots']} - {awayTeam.getShortName()} {matchStatistics['awayShots']}")
+        print(f"🥅 Big Chances: {homeTeam.getShortName()} {matchStatistics['homeBigChances']} - {awayTeam.getShortName()} {matchStatistics['awayBigChances']}")
+        print(f"📊 Expected Goals: {homeTeam.getShortName()} {matchStatistics['homeXG']} - {awayTeam.getShortName()} {matchStatistics['awayXG']}")
+        print(f"🧑‍⚖️ Fouls: {homeTeam.getShortName()} {matchStatistics['homeFouls']} - {awayTeam.getShortName()} {matchStatistics['awayFouls']}")
+        print(f"🟨 Yellow Cards: {homeTeam.getShortName()} {matchStatistics['homeYellowCards']} - {awayTeam.getShortName()} {matchStatistics['awayYellowCards']}")
+        print(f"🟥 Red Cards: {homeTeam.getShortName()} {matchStatistics['homeRedCards']} - {awayTeam.getShortName()} {matchStatistics['awayRedCards']}")
+        print(seperator())
+        # Sort by minute
+        events.sort(key=lambda event: event["minute"])
+
+        for event in events:
+            minute = event["minute"]
+            team = event["team"].getShortName()
+
+            if event["type"] == "chance":
+                if event["outcome"] == "goal":
+                    scorer = event["scorer"].getName()
+
+                    if event["assister"] is not None:
+                        assister = event["assister"].getName()
+                        print(f"{minute}' ⚽ {team} | {scorer} (Assist: {assister})")
+                    else:
+                        print(f"{minute}' ⚽ {team} | {scorer}")
+
+            elif event["type"] == "foul":
+                player = event["player"].getName()
+
+                if event["outcome"] == "yellow":
+                    print(f"{minute}' 🟨 {team} | {player}")
+
+                elif event["outcome"] == "red":
+                    print(f"{minute}' 🟥 {team} | {player}")
+
+            elif event["type"] == "substitution":
+                outgoing = event["leaving-match"].getName()
+                incoming = event["joining-match"].getName()
+                print(f"{minute}' 🔄 {team} | 🛑 {outgoing} | 🟢️ {incoming}")
+
+            elif event["type"] == "injury":
+                player = event["player"].getName()
+                print(f"{minute}' 🚑 {team} | {player}")
+
+            elif event["type"] == "penalty":
+                player = event["taker"].getName()
+                if event["outcome"] == "scored":
+                    print(f"Penalty: ✅ {team} | {player}")
+                elif event["outcome"] == "missed":
+                    print(f"Penalty: ❌ {team} | {player}")
+    else:
+        print("⚠️ Fixture has not been played yet.")
+
+    ui = option_menu([f"View {homeTeam.getName()}", f"View {awayTeam.getName()}"], go_back_allowed=True)
+    if ui == 1:
+        view_club_menu(homeTeam.getID(), homeTeam, game)
+    elif ui == 2:
+        view_club_menu(awayTeam.getID(), awayTeam, game)
+    elif ui == 3:
+        return
+
 
 
 def view_manager_menu(managerID, manager, game):
@@ -206,10 +346,18 @@ def view_club_fixtures(clubID, club, game):
         elif fixture.getScore() is None and fixture.getType() == "knockout" and fixture.getTournamentID() is None:
             print(f"{league.getName()} | {fixture.getStage()} | {day}/{month}/{year} | {home.getShortName()} - {away.getShortName()}")
 
-    ui = option_menu([f"View {club.getFullName()}"], go_back_allowed=True)
+    ui = option_menu([f"View {club.getFullName()}", "View a fixture"], go_back_allowed=True)
     if ui == 1:
         view_club_menu(clubID, club, game)
     elif ui == 2:
+        clubFixtures = club.getFixtures()
+        for clubFixture in clubFixtures:
+            if clubFixture not in fixtures:
+                fixtures.append(clubFixture)
+
+        fixture = fixture_search(fixtures, game)
+        view_fixture_menu(fixture, game)
+    elif ui == 3:
         return
 
 def view_league_menu(leagueID, league, game, sort="points"):
@@ -218,52 +366,216 @@ def view_league_menu(leagueID, league, game, sort="points"):
     nationObject = nations[league.getNation()]
 
     print(seperator())
-    print(f"️🛡️️ {league.getName()} - {nationObject.getName()}")
+    print(f"🛡️ {league.getName()} - {nationObject.getName()}")
     print(seperator())
 
-    clubs = league.getClubs()
-    clubList = []
+    clubList = list(league.getClubs().values())
 
-    for club in clubs.values():
-        clubList.append(club)
+    sort_functions = {
+        "points": (lambda c: (-c.getPoints(), -c.getGoalDifference(), -c.getGoalsFor(), c.getFullName()), "Normal"),
+        "gamesPlayed": (lambda c: c.getMatchesPlayed(), "Normal"),
+        "goalDifference": (lambda c: c.getGoalDifference(), "Normal"),
+        "goalsScored": (lambda c: c.leagueGoalsFor, "Data"),
+        "goalsConceded": (lambda c: c.leagueGoalsAgainst, "Data"),
+        "cleanSheets": (lambda c: c.leagueCleanSheets, "Data"),
+        "averagePossession": (lambda c: safe_divide(c.leagueTotalPossession, c.leagueMatchesPlayed), "Data"),
+        "passesPer90": (lambda c: safe_divide(c.leagueTotalPasses, c.leagueMatchesPlayed), "Data"),
+        "shotsPer90": (lambda c: safe_divide(c.leagueTotalShots, c.leagueMatchesPlayed), "Data"),
+        "bigChancesPer90": (lambda c: safe_divide(c.leagueTotalBigChances, c.leagueMatchesPlayed), "Data"),
+        "xgTotal": (lambda c: c.leagueTotalXG, "Data"),
+        "xgPer90": (lambda c: safe_divide(c.leagueTotalXG, c.leagueMatchesPlayed), "Data"),
+        "fouls": (lambda c: c.leagueTotalFouls, "Data"),
+        "yellowCards": (lambda c: c.leagueTotalYellowCards, "Data"),
+        "redCards": (lambda c: c.leagueTotalRedCards, "Data"),
+        "mediaPrediction": (lambda c: c.calculateBettingOdds(game), "Media Prediction")
+    }
 
-    if sort == "points":
-        clubList.sort(key=lambda club: (-club.getPoints(), -club.getGoalDifference(), -club.getGoalsFor(), club.getFullName()))
-    elif sort == "gamesPlayed":
-        clubList.sort(key=lambda p: p.getMatchesPlayed(), reverse=True)
-    elif sort == "goalDifference":
-        clubList.sort(key=lambda p: p.getGoalDifference(), reverse=True)
-    elif sort == "mediaPrediction":
-        clubList.sort(key=lambda p: p.calculateBettingOdds(game))
+    sort_key, view = sort_functions[sort]
+    clubList.sort(key=sort_key, reverse=(sort != "points" and sort != "mediaPrediction"))
 
-    print("Club Name | Games Played | Wins | Draws | Losses | Goal Difference | Points")
-    print(seperator())
-    if sort == "mediaPrediction":
-        for club in clubList:
-            print(f"{club.getFullName()} - {club.calculateBettingOdds(game)}/1")
+    if view == "Normal":
+
+        print("Pos | Club | Pl | W | D | L | GD | Pts")
+        print(seperator())
+
+        for pos, club in enumerate(clubList, start=1):
+            print(
+                f"{pos}. {club.getFullName()} - "
+                f"{club.getMatchesPlayed()} Pl - "
+                f"{club.getWins()} W - "
+                f"{club.getDraws()} D - "
+                f"{club.getLosses()} L - "
+                f"{club.getGoalDifference()} GD - "
+                f"{club.getPoints()} Pts"
+            )
+
+    elif view == "Media Prediction":
+
+        print("Pos | Club | Odds")
+        print(seperator())
+
+        for pos, club in enumerate(clubList, start=1):
+            print(f"{pos}. {club.getFullName()} - {club.calculateBettingOdds(game)}/1")
+
     else:
-        for club in clubList:
-            print(f"{club.getFullName()} - {club.getMatchesPlayed()} Pl - {club.getWins()} W - {club.getDraws()} D - {club.getLosses()} L - {club.getGoalDifference()} GD - {club.getPoints()} Pts")
 
-    ui = option_menu([f"View club in {league.getName()}", "Sort by points", "Sort by games played", "Sort by goal difference", "Sort by Media Prediction"], True)
+        headers = {
+            "goalsScored": "Goals",
+            "goalsConceded": "Goals Against",
+            "cleanSheets": "Clean Sheets",
+            "averagePossession": "Possession %",
+            "passesPer90": "Passes / 90",
+            "shotsPer90": "Shots / 90",
+            "bigChancesPer90": "Big Chances / 90",
+            "xgTotal": "Total XG",
+            "xgPer90": "xG / 90",
+            "fouls": "Fouls /90",
+            "yellowCards": "Yellow Cards",
+            "redCards": "Red Cards",
+        }
+
+        print(f"Pos | Club | {headers[sort]}")
+        print(seperator())
+
+        value_functions = {
+            "goalsScored": lambda c: c.leagueGoalsFor,
+            "goalsConceded": lambda c: c.leagueGoalsAgainst,
+            "cleanSheets": lambda c: c.leagueCleanSheets,
+            "averagePossession": lambda c: f"{safe_divide(c.leagueTotalPossession, c.leagueMatchesPlayed):.1f}%",
+            "passesPer90": lambda c: f"{safe_divide(c.leagueTotalPasses, c.leagueMatchesPlayed):.1f}",
+            "shotsPer90": lambda c: f"{safe_divide(c.leagueTotalShots, c.leagueMatchesPlayed):.1f}",
+            "bigChancesPer90": lambda c: f"{safe_divide(c.leagueTotalBigChances, c.leagueMatchesPlayed):.1f}",
+            "xgTotal": lambda c: f"{c.leagueTotalXG:.1f}",
+            "xgPer90": lambda c: f"{safe_divide(c.leagueTotalXG, c.leagueMatchesPlayed):.2f}",
+            "fouls": lambda c: c.leagueTotalFouls,
+            "yellowCards": lambda c: c.leagueTotalYellowCards,
+            "redCards": lambda c: c.leagueTotalRedCards,
+            "mediaPrediction": lambda c: c.calculateBettingOdds(game)
+        }
+
+        get_value = value_functions[sort]
+
+        for pos, club in enumerate(clubList, start=1):
+            print(f"{pos}. {club.getFullName()} - {get_value(club)}")
+
+    ui = option_menu(
+        ["View club in league", "Sort Menu", "View player stats", "View Media Prediction"],
+        True
+    )
+
     if ui == 1:
-        tempDict = {}
-        for club in clubList:
-            tempDict[club.getID()] = club
-        clubDict = tempDict
+        clubDict = {club.getID(): club for club in clubList}
         clubID, club = search(clubDict)
         view_club_menu(clubID, club, game)
+
     elif ui == 2:
-        view_league_menu(leagueID, league, game, sort="points")
+        modifiedSort = league_sort_menu(game, leagueID, league, sort)
+        view_league_menu(leagueID, league, game, modifiedSort)
+
     elif ui == 3:
-        view_league_menu(leagueID, league, game, sort="gamesPlayed")
+        league_player_stats_menu(leagueID, league, game, sort="goals")
+
     elif ui == 4:
-        view_league_menu(leagueID, league, game, sort="goalDifference")
-    elif ui == 5:
-        view_league_menu(leagueID, league, game, sort="mediaPrediction")
-    elif ui == 6:
+        view_league_menu(leagueID, league, game, "mediaPrediction")
+
+    elif ui == 4:
         return
 
+def league_player_stats_menu(leagueID, league, game, sort="goals"):
+    players = game.getPlayers()
+    print(seperator())
+    print(f"🛡️ {league.getName()}")
+    print(seperator())
+    players_in_league = []
+    for player in players.values():
+        for playerLeagueID in player.seasonData.keys():
+            if playerLeagueID == leagueID:
+                players_in_league.append(player)
+
+    if sort == "goals":
+        players_in_league.sort(key=lambda p: p.seasonData[leagueID].goals, reverse=True)
+    elif sort == "assists":
+        players_in_league.sort(key=lambda p: p.seasonData[leagueID].assists, reverse=True)
+    elif sort == "goalsContributions":
+        players_in_league.sort(key=lambda p: p.seasonData[leagueID].goals + p.seasonData[leagueID].assists)
+    elif sort == "yellowCards":
+        players_in_league.sort(key=lambda p: p.seasonData[leagueID].yellowCards, reverse=True)
+    elif sort == "redCards":
+        players_in_league.sort(key=lambda p: p.seasonData[leagueID].redCards, reverse=True)
+    elif sort == "cleanSheets":
+        players_in_league.sort(key=lambda p: p.seasonData[leagueID].cleanSheets, reverse=True)
+
+    players_to_show = []
+
+    if len(players_in_league) > 9:
+        for i in range(10):
+            players_to_show.append(players_in_league[i])
+    elif len(players_in_league) < 10:
+        for i in range(len(players_in_league)):
+            players_to_show.append(players_in_league[i])
+
+
+    print("Name | Pos | Goals | Assists | Yellow Cards | Red Cards | Clean Sheets")
+    print(seperator())
+    for player in players_to_show:
+        print(f"{player.getName()} - {player.getPosition()} - {player.seasonData[leagueID].goals} - {player.seasonData[leagueID].assists} - {player.seasonData[leagueID].yellowCards} - {player.seasonData[leagueID].redCards} - {player.seasonData[leagueID].cleanSheets}")
+    ui = option_menu(["View player in list", "Sort by goals", "Sort by assists", "Sort by goal contributions", "Sort by yellow cards", "Sort by red cards", "Sort by clean sheets"], True)
+    if ui == 1:
+        tempDict = {}
+        for player in players_to_show:
+            tempDict[player.getID()] = player
+        players_to_show = tempDict
+        playerID, player = search(players_to_show)
+        view_player_menu(playerID, player, game)
+    elif ui == 2:
+        league_player_stats_menu(leagueID, league, game, sort="goals")
+    elif ui == 3:
+        league_player_stats_menu(leagueID, league, game, sort="assists")
+    elif ui == 4:
+        league_player_stats_menu(leagueID, league, game, sort="goalContributions")
+    elif ui == 5:
+        league_player_stats_menu(leagueID, league, game, sort="yellowCards")
+    elif ui == 6:
+        league_player_stats_menu(leagueID, league, game, sort="redCards")
+    elif ui == 7:
+        league_player_stats_menu(leagueID, league, game, sort="cleanSheets")
+    elif ui == 8:
+        view_league_menu(leagueID, league, game, sort="points")
+
+
+
+
+
+
+
+def league_sort_menu(game, leagueID, league, sort):
+    print(seperator())
+    print(f"️🛡️️ {league.getName()} - Sort Menu")
+    ui = option_menu(["Sort by Points", "Sort by matches played", "Sort by goal difference", "Sort by Goals scored", "Sort by goals conceded",
+                      "Sort by total clean sheets", "Sort by average possession", "Sort by passes per 90",
+                      "Sort by shots per 90", "Sort by big chances per 90", "Sort by total XG", "Sort by XG per 90", "Sort by fouls per 90", "Sort by yellow cards per 90",
+                      "Sort by red cards per 90"], True)
+    sort_options = {
+        1: "points",
+        2: "gamesPlayed",
+        3: "goalDifference",
+        4: "goalsScored",
+        5: "goalsConceded",
+        6: "cleanSheets",
+        7: "averagePossession",
+        8: "passesPer90",
+        9: "shotsPer90",
+        10: "bigChancesPer90",
+        11: "xgTotal",
+        12: "xgPer90",
+        13: "foulsPer90",
+        14: "yellowCardsPer90",
+        15: "redCardsPer90",
+        16: sort
+    }
+
+    sort = sort_options.get(ui, sort)
+    return sort
 
 def view_club_menu(clubID, club, game):
     leagues = game.getLeagues()
@@ -376,6 +688,9 @@ def view_player_menu(playerID, player, game):
     else:
         playersListForStarRating = players
 
+    leagues = game.getLeagues()
+    league = leagues[clubs[player.getClub()].getLeague()]
+
 
     print(seperator())
     print(f"️‍⛹️‍♂️ {player.getName()} | Age: {player.getAge(dateObject)} ({player.getBirthday()}) | {nations[player.getNationality()].getName()}")
@@ -383,6 +698,32 @@ def view_player_menu(playerID, player, game):
     print(seperator())
     (passing, dribbling, finishing, defending, ball_control, delivery, vision, football_iq, positioning, composure, decision_making, work_rate, aggression,
      pace, strength, stamina, aerial, shot_stopping, handling, distribution, command)= player.getAttributes()
+
+    print(f"💚 Condition: {round(player.condition)}%")
+    if player.isInjured:
+        injuryObject = player.getInjuryObject()
+        fixture = injuryObject.getFixtureSustainedIn()
+        homeTeam, awayTeam = fixture.getTeams()
+        day, month, year = fixture.getDate()
+        print(f"🚑 Injury Status: {injuryObject.getName()}. Sustained in {homeTeam.getName()} vs {awayTeam.getName()} on {day}/{month}/{year}.")
+        if injuryObject.min_days > injuryObject.timeElapsed:
+            print(f"Will be out for between {injuryObject.min_days - injuryObject.timeElapsed} and {injuryObject.max_days - injuryObject.timeElapsed} days.")
+        else:
+            print(f"Will be out for {injuryObject.length - injuryObject.timeElapsed} days.")
+    else:
+        print("🚑 Injury Status: None")
+
+    if len(player.seasonData) != 0:
+
+        print("")
+        print("📋 Player Season Stats:")
+        print("")
+
+        for leagueID, league in player.seasonData.items():
+            print(f"{leagues[leagueID].getName()}")
+            print(f"🎽 {league.appearances}({league.subAppearances}) | ⚽ {league.goals} | 🥾 {league.assists} | 🟨 {league.yellowCards} | 🟥 {league.redCards}")
+            print("")
+
     print("📊 Attributes:")
     if player.getPosition().getAbbreviation() == "GK":
         print(f"Shot Stopping: {shot_stopping}")
@@ -597,7 +938,7 @@ def team_sheet_menu(clubID, club, game):
     print(seperator())
     print(f"{clubs[clubID].printColors()} {clubs[clubID].getFullName()}'s Squad")
     print(seperator())
-    formation, starting_eleven, bench = club.getTeamSheet()
+    formation, starting_eleven, bench, playingStyle = club.getTeamSheet()
 
     if formation is not None and len(starting_eleven) > 0 and len(bench) > 0:
         for index, position in enumerate(formation):
@@ -608,8 +949,8 @@ def team_sheet_menu(clubID, club, game):
 
     ui = option_menu(["Auto Pick Team", "Set Formation", "Clear Team Sheet"], go_back_allowed=True)
     if ui == 1:
-        formation, starting_eleven, bench = club.autoPickTeam()
-        club.setTeamSheet(formation, starting_eleven, bench)
+        formation, starting_eleven, bench, playingStyle = club.autoPickTeam()
+        club.setTeamSheet(formation, starting_eleven, bench, playingStyle)
         team_sheet_menu(clubID, club, game)
     elif ui == 2:
         print("")
@@ -617,7 +958,7 @@ def team_sheet_menu(clubID, club, game):
         formation = None
         starting_eleven = []
         bench = []
-        club.setTeamSheet(formation, starting_eleven, bench)
+        club.setTeamSheet(formation, starting_eleven, bench, playingStyle)
         team_sheet_menu(clubID, club, game)
     elif ui == 4:
         return
@@ -671,7 +1012,7 @@ def view_squad_screen(clubID, game, sort = "position", type = "firstTeam"):
         return
 
 def universal_search_menu(game):
-    ui = option_menu(["⛹️‍♂️ Players", "🛡️ Clubs", "📜 Leagues", "🧑‍💼 Managers", "🏟 Stadiums"], go_back_allowed=True)
+    ui = option_menu(["⛹️‍♂️ Players", "🛡️ Clubs", "📜 Leagues", "🆚 Fixtures", "🧑‍💼 Managers", "🏟 Stadiums"], go_back_allowed=True)
     if ui == 1:
         players = game.getPlayers()
         playerID, player = search(players)
@@ -685,14 +1026,25 @@ def universal_search_menu(game):
         leagueID, league = search(leagues)
         view_league_menu(leagueID, league, game)
     elif ui == 4:
+        clubs = game.getClubs()
+        fixtures = []
+        for club in clubs.values():
+            clubFixtures = club.getFixtures()
+            for clubFixture in clubFixtures:
+                if clubFixture not in fixtures:
+                    fixtures.append(clubFixture)
+
+        fixture = fixture_search(fixtures, game)
+        view_fixture_menu(fixture, game)
+    elif ui == 5:
         managers = game.getManagers()
         managerID, manager = search(managers)
         view_manager_menu(managerID, manager, game)
-    elif ui == 5:
+    elif ui == 6:
         stadiums = game.getStadiums()
         stadiumID, stadium = search(stadiums)
         view_stadium_menu(stadiumID, stadium, game)
-    elif ui == 6:
+    elif ui == 7:
         return
 
 
@@ -766,8 +1118,8 @@ def game_main_menu(game):
         playerManagerClubID = clubs[managers[playerManagerID].getClub()].getID()
         clubObject = clubs[playerManagerClubID]
 
-
         day, month, year = dateObject.getDate()
+
 
         if len(clubObject.getFixtures()) == 0:
             next_fixture = None

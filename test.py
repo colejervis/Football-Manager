@@ -1,10 +1,27 @@
+from read_from_file import *
+from classes import *
+from match_engine import *
 
-# ENSURES KEY ATTRIBUTES GROW RAPIDLY
-def high_curve(x):
-    return (x / 10) ** 1.3 * 10
+def temp():
+    game = 1
+    players = read_players_from_file()
+    positions = read_positions_from_file()
+    clubs = read_clubs_from_file()
+    leagues = read_leagues_from_file()
+    managers = read_managers_from_file()
+    stadiums = read_stadiums_from_file()
+    loans = read_loans_from_file()
 
-# ENSURES DECENTLY IMPORTANT ATTRIBUTES GROW EXPONENTIALLY
-def mid_curve(x):
-    return (x / 10) ** 1.05 * 10
+    initialize_loans(players, loans)
+    initialize_players(players, clubs)
+    initialize_leagues(clubs, leagues)
+    initialize_managers(managers, clubs)
+    initialize_stadiums(stadiums, clubs)
+    initialize_positions(players, positions)
 
-print(high_curve(10))
+    f = Fixture(1, clubs[randint(1, 44)], clubs[randint(1, 44)], 1, None, "league")
+    simulate_match(f)
+
+
+
+temp()

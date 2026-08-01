@@ -20,12 +20,28 @@ The player takes control of a football club and is responsible for managing the 
 * Youth academy and first team separation
 * Player, club, stadium and manager search database
 * Shortlisting system
+* Player stat tracking across all competitions (goals, assists, clean sheets, appearances, cards)
+
+#### Match Engine
+
+* Minute-by-minute simulation (90 minutes, plus extra time and penalties for knockout fixtures)
+* Poisson-distributed chance and foul events
+* Six distinct playing styles (Possession, Tiki-Taka, Wing Play, Gegenpress, Counter Attack, Route One) each with it's own multipliers affecting chance creation, possession, passing volume, and chance quality
+* Home advantage and squad style-fit vs league average factored into chance creation volume
+* Automatic, formation-aware team selection - key players are selected almost every week while backup options genuinely rotate
+* Secondary position eligibility with a familiarity penalty when played out of position
+* Goal / shot outcomes determined using sigmoid model comparing attacker against goalkeeper
+* Assist attribution weighted by passing, decision-making and composure
+* Dynamic player condition/fatigue affecting selection and performance over the course of a match
+* In-match injuries and automatic substitutions
+* Two-legged knockout ties with aggregate scoring
+* Full match statistics / report containing statistics such as possession, passes, shots, big chances, xG, fouls and cards
 
 #### Competitions
 
 * League table simulation
 * Full season fixture generation
-* Automatic match simulation (match engine doesn't exist yet - this is random.)
+* Automatic match simulation via Match Engine
 * Promotion and relegation
 * Promotion playoffs
 
@@ -63,8 +79,6 @@ This project is currently in active development as part of an A-Level Computer S
 * Contract renewals
 * 'Newgen' fake player generation
 * Player development
-* Tactical system
-* Match engine
 * Cup competitions
 * Save/load functionality
 

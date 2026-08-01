@@ -1,15 +1,14 @@
-## v0.2.0
+## v0.3.0
 
 ### Added
-- Youth academy system - separation system from first-team players
-- Championship playoff system and basis for other knockout tournaments
-- Automatic promotion and relegation between divisions.
+- Match Engine
+- Tactics system - managers can choose to play with one of six tactics - Wing Play, Gegenpress, Tiki-Taka, Possession, Counter-attack, Route One
+- Full Match statistics / report containing statistics such as posession, passes, shots, big chances, xG, fouls and cards
+- Player season-stats tracking across all competitions (goals, assists, clean sheets, appearances, cards)
 
 ### Changed
-- Added EFL Championship clubs, players, stadiums, managers
-- Expanded player database using data from Football Manager - attributes for each player are weighted into a smaller, more appropiate number of attributes for a simulation of this size
-- Completely redesigned player rating calculation - based on FM's 1-200 CA system where high attribute increases are no longer linear
-- Redesigned exponential player rating calculation into three separate equations, to better match the new player rating approach
+- Playoff semi-finals are now two-legged - aggregate scoring and tiebreak via penalties
+- Team selection for matches is now more random to introduce better squad rotation and game time for players outside best XI
 - Improved season progression and fixture generation.
 
 ### Fixed
