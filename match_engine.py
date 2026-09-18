@@ -1,17 +1,17 @@
 
-import math
-import random
-import statistics
 
-from classes import seasonData
-from cli import *
+import random
+import math
+from mathematical_models import poisson_distribution
+from mathematical_models import sigmoid
+from mathematical_models import random_choices
 
 CARD_PROBABILITY = 0.10
 RED_CARD_PROBABILITY = 0.05
 AVERAGE_AGGRESSION = 12
 
 MIDFIELD_INFLUENCE = 0.35
-SCALING_CONSTANT = 75
+SCALING_CONSTANT = 85
 HOME_ADVANTAGE = 1.2
 CUTOFF_POINT = 40
 MAX_ATTRIBUTE_LIMIT = 20
@@ -32,17 +32,6 @@ POSITION_MAPPING = {
     }
 
 
-# KNUTH's ALGORITHM
-def poisson(lmbda):
-    if lmbda <= 0:
-        return 0
-    L = math.exp(-lmbda)
-    k = 0
-    p = 1.0
-    while p > L:
-        k += 1
-        p *= random.random()
-    return k - 1
 
 def assignMinute(MATCH_TIME_RELATED_CONSTANTS):
 
@@ -76,17 +65,10 @@ def decreaseCondition(teamA, teamB, minute, MATCH_TIME_RELATED_CONSTANTS):
 
         if position == "goalkeeper":
             # Goalkeepers lose condition much more slowly
-            loss = (
-                0.25
-                - player.stamina * 0.008
-            )
+            loss = (0.25 - player.stamina * 0.008)
         else:
             # Outfield players
-            loss = (
-                0.95
-                - player.stamina * 0.02
-                + player.work_rate * 0.01
-            )
+            loss = (0.95 - player.stamina * 0.02 + player.work_rate * 0.01)
 
         player.condition = max(0, player.condition - loss * time_factor)
 
@@ -143,7 +125,7 @@ def considerSubstitution(team, minute):
     starting_eleven_copy.sort(key=lambda p: p.condition)
 
 
-    player = starting_eleven_copy[random.randint(0, 3)]
+    player = starting_eleven_copy[random.randint(0, len(starting_eleven_copy) - 1)]
 
     if minute > 50 and player.condition < 40:
         chance = 0.2
@@ -161,8 +143,6 @@ def makeSubstitution(team, player, minute, subCount):
 
     formation, starting_eleven, bench, playingStyle = team.getTeamSheet()
     for index, playerInList in enumerate(starting_eleven):
-        if player.isSentOff:
-            continue
         if playerInList == player:
             break
 
@@ -214,13 +194,13 @@ def calculateFouls(team, MATCH_TIME_RELATED_CONSTANTS):
 
     teamFoulTotal = MATCH_TIME_RELATED_CONSTANTS["BASE_FOUL_TOTAL"] * multiplier * playing_style_multipliers[playingStyle]
 
-    totalFouls = poisson(teamFoulTotal)
+    totalFouls = poisson_distribution(teamFoulTotal)
     return totalFouls
 
 
 def evaluateFoul(team, minute, events):
     formation, starting_eleven, bench, playingStyle = team.getTeamSheet()
-    candidates = {}
+    candidates = []
 
     for index in range(len(starting_eleven)):
         if starting_eleven[index].isSentOff:
@@ -228,18 +208,12 @@ def evaluateFoul(team, minute, events):
         player = starting_eleven[index]
         weight = (player.aggression * 0.40 + (MAX_ATTRIBUTE_LIMIT - player.decision_making) * 0.20 +
                   (MAX_ATTRIBUTE_LIMIT - player.defending) * 0.20 + (MAX_ATTRIBUTE_LIMIT - player.composure) * 0.20)
-        candidates[player] = weight
+        candidates.append([player, weight])
 
-    totalWeight = 0
-    for player, weight in candidates.items():
-        totalWeight += weight
-    selection = random.uniform(0, totalWeight)
-    runningTotal = 0
-    for player, weight in candidates.items():
-        runningTotal += weight
-        if selection <= runningTotal:
-            selectedFouler = player
-            break
+    item = random_choices(candidates)
+    selectedFouler = item[0]
+
+
 
     if random.random() < CARD_PROBABILITY:
         if random.random() < RED_CARD_PROBABILITY:
@@ -272,60 +246,6 @@ def evaluateFoul(team, minute, events):
     return event
 
 
-def calculateStyleFitMultiplier(team, game):
-    # STYLE FIT CONSIDERS HOW WELL A TEAM'S SQUAD IS SUITED TO A PLAY STYLE, AND IS COMPARED WITH LEAGUE AVERAGE
-
-    STYLE_FIT_PROFILES = {
-        "Possession": {"passing": 0.30, "ball_control": 0.25, "vision": 0.20, "composure": 0.15, "decision_making": 0.10},
-        "Tiki Taka": {"passing": 0.35, "vision": 0.25, "ball_control": 0.25, "decision_making": 0.15},
-        "Wing Play": {"delivery": 0.30, "pace": 0.25, "dribbling": 0.20, "ball_control": 0.15, "decision_making": 0.10},
-        "Gegenpress": {"work_rate": 0.25, "stamina": 0.20, "aggression": 0.15, "pace": 0.15, "defending": 0.15, "decision_making": 0.10},
-        "Counter Attack": {"pace": 0.30, "decision_making": 0.20, "vision": 0.20, "finishing": 0.15, "composure": 0.15},
-        "Route One": {"aerial": 0.35, "strength": 0.25, "pace": 0.25, "composure": 0.15},
-    }
-
-    leagues = game.getLeagues()
-    leagueObject = leagues[team.getLeague()]
-    clubs = leagueObject.getClubs()
-
-    club_styleFitScore = {}
-
-    for club in clubs.values():
-        formation, starting_eleven, bench, playingStyle = club.getTeamSheet()
-
-        # IF TEAM SHEET NOT SET YET, IT WILL GET PLAYING STYLE FROM MANAGER INSTEAD
-        if playingStyle is None:
-            playingStyle = club.manager.getPreferredPlayingStyle()
-
-        players_to_assess = []
-        clubPlayers = club.getPlayers()
-        clubPlayers.sort(key=lambda p: p.calculateRating(), reverse=True)
-        for player in clubPlayers[:15]:
-            if player.getPosition().getID() != 1:
-                players_to_assess.append(player)
-        totalScore = 0
-        for player in players_to_assess:
-            playerScore = 0
-            for attribute, weight in STYLE_FIT_PROFILES[playingStyle].items():
-                playerScore += getattr(player, attribute) * weight
-            totalScore += playerScore
-        averageScore = totalScore / len(players_to_assess)
-        club_styleFitScore[club] = averageScore
-
-    running_total = 0
-    for club, score in club_styleFitScore.items():
-        if club != team:
-            running_total += score
-
-    leagueAvg = running_total / (len(club_styleFitScore) - 1)
-    teamAvg = club_styleFitScore[team]
-
-    ratio = teamAvg / leagueAvg
-    strength = 0.5  # 0 = no effect, 1 = full effect
-
-    return 1 + (ratio - 1) * strength
-
-
 
 def calculateChances(clubARatings, clubBRatings, teamObject, homeClub, styleFitMultiplier, MATCH_TIME_RELATED_CONSTANTS):
     formation, starting_eleven, bench, playingStyle = teamObject.getTeamSheet()
@@ -336,13 +256,9 @@ def calculateChances(clubARatings, clubBRatings, teamObject, homeClub, styleFitM
     threatScore = aAttack - bDefence + ((aMidfield - bMidfield) * MIDFIELD_INFLUENCE)
 
     if threatScore > CUTOFF_POINT:
-        # value the uncapped formula would give exactly at the cutoff
-        lmbda_at_cutoff = MATCH_TIME_RELATED_CONSTANTS["DEFAULT_CHANCES"] * 2.7 ** (CUTOFF_POINT / SCALING_CONSTANT)
-        excess = threatScore - CUTOFF_POINT
-        # grow more slowly beyond the cutoff, starting from that same point
-        lmbda = lmbda_at_cutoff * 1.3 ** (excess / SCALING_CONSTANT)
-    else:
-        lmbda = MATCH_TIME_RELATED_CONSTANTS["DEFAULT_CHANCES"] * 2.7 ** (threatScore / SCALING_CONSTANT)
+        threatScore = CUTOFF_POINT + (threatScore - CUTOFF_POINT) * 0.3
+
+    lmbda = MATCH_TIME_RELATED_CONSTANTS["DEFAULT_CHANCES"] * math.exp(threatScore / SCALING_CONSTANT)
 
     if homeClub:
         lmbda = lmbda * HOME_ADVANTAGE
@@ -359,7 +275,7 @@ def calculateChances(clubARatings, clubBRatings, teamObject, homeClub, styleFitM
     # BOOSTS / DECREASES AMOUNT OF CHANCES DEPENDING ON HOW GOOD A TEAM IS AT PLAYING A PARTICULAR STYLE COMPARED TO THE LEAGUE
     lmbda *= styleFitMultiplier
 
-    chances = poisson(lmbda * playing_style_multipliers[playingStyle])
+    chances = poisson_distribution(lmbda * playing_style_multipliers[playingStyle])
 
     return chances
 
@@ -368,23 +284,17 @@ ROLE_WEIGHT = {"goalkeeper": 0.0, "defender": 0.15, "midfielder": 0.45, "attacke
 def evaluateChance(attackingTeam, defendingTeam, minute):
 
     formation, starting_eleven, bench, playingStyle = attackingTeam.getTeamSheet()
-    weights = {}
+    weights = []
 
     for index, position in enumerate(formation):
         player = starting_eleven[index]
         if player.isSentOff:
             continue
         group = POSITION_MAPPING[position]
-        weights[player] = ROLE_WEIGHT[group] * player.calculateRating(position)
+        weights.append([player, ROLE_WEIGHT[group] * player.calculateRating(position)])
 
-    total = sum(weights.values())
-    number = random.uniform(0, total)
-    cumulative = 0
-    for player, weight in weights.items():
-        cumulative += weight
-        if number <= cumulative:
-            selectedShooter = player
-            break
+    selectedItem = random_choices(weights)
+    selectedShooter = selectedItem[0]
 
     # SELECTS GOALKEEPER FROM DEFENDING SIDE
 
@@ -406,9 +316,8 @@ def evaluateChance(attackingTeam, defendingTeam, minute):
         "Route One": 1.05
     }
 
-    # USES SIGMOID FUNCTION TO CONVERT TO PROBABILITY
-    scale = 7 # Dictates how much ratings matter
-    goalProbability = (1 / (1 + math.exp(-shotQuality / scale))) * playing_style_multipliers[playingStyle]
+    scale = 15 # Dictates how much ratings matter
+    goalProbability = sigmoid(shotQuality, scale) * playing_style_multipliers[playingStyle]
     if goalProbability > 0.9:
         goalProbability = 0.9
 
@@ -422,33 +331,26 @@ def evaluateChance(attackingTeam, defendingTeam, minute):
 
     if outcome == "goal":
         # ASSIGNS ASSIST TO GOAL IF NEEDED
-        assistProbability = 0.75
-        if random.random() < assistProbability:
-            candidates = {}
-            for index in range(len(starting_eleven)):
-                if starting_eleven[index].isSentOff:
+        if random.random() < ASSIST_PROBABILITY:
+            candidates = []
+            for player in starting_eleven:
+
+                if player.isSentOff:
                     continue
-                player = starting_eleven[index]
+
+                if player == selectedShooter:
+                    continue
+
                 weight = player.passing * 0.50 + player.vision * 0.25 + player.decision_making * 0.15 + player.composure * 0.10
-                candidates[player] = weight
 
-            goalkeeper = starting_eleven[0]
-            if goalkeeper in candidates:
-                candidates[goalkeeper] *= 0.2
+                if player == selectedGoalkeeper:
+                    weight *= 0.2
 
-            if selectedShooter in candidates.keys():
-                del candidates[selectedShooter]
+                candidates.append([player, weight])
 
-            totalWeight = 0
-            for player, weight in candidates.items():
-                totalWeight += weight
-            selection = random.uniform(0, totalWeight)
-            runningTotal = 0
-            for player, weight in candidates.items():
-                runningTotal += weight
-                if selection <= runningTotal:
-                    selectedAssister = player
-                    break
+            item = random_choices(candidates)
+            selectedAssister = item[0]
+
         else:
             selectedAssister = None
 
@@ -544,36 +446,37 @@ def get_match_statistics(fixture, homeTeam, awayTeam, homeRatings, awayRatings):
         "Route One": 1.15
     }
 
-    extraShots = poisson(homeBigChances * 0.5 * playing_style_multipliers[playingStyleA])  # low-quality/speculative efforts beyond the clear-cut chances
+    extraShots = poisson_distribution(homeBigChances * 0.5 * playing_style_multipliers[playingStyleA])  # low-quality/speculative efforts beyond the clear-cut chances
     homeShots = homeBigChances + extraShots
-    extraShots = poisson(awayBigChances * 0.5 * playing_style_multipliers[playingStyleB])  # low-quality/speculative efforts beyond the clear-cut chances
+    extraShots = poisson_distribution(awayBigChances * 0.5 * playing_style_multipliers[playingStyleB])  # low-quality/speculative efforts beyond the clear-cut chances
     awayShots = awayBigChances + extraShots
 
     # POSSESSION
 
     playing_style_multipliers = {
-        "Possession": 1.13,
-        "Tiki Taka": 1.10,
+        "Possession": 1.25,
+        "Tiki Taka": 1.20,
         "Wing Play": 1.00,
         "Gegenpress": 1.05,
-        "Counter Attack": 0.90,
-        "Route One": 0.85
+        "Counter Attack": 0.80,
+        "Route One": 0.80
     }
 
-    playing_style_multiplier = playing_style_multipliers[playingStyleA] - playing_style_multipliers[playingStyleB] + 1
+    relative_playing_style_multiplier = playing_style_multipliers[playingStyleA] - playing_style_multipliers[playingStyleB] + 1
 
     aGoalkeeping, aDefence, aMidfield, aAttack = homeRatings
     bGoalkeeping, bDefence, bMidfield, bAttack = awayRatings
 
     diff = aMidfield - bMidfield
-    scale = 40  # controls how sharply midfield dominance swings possession
-    homePossession = 50 + 50 * math.tanh(diff / scale) # Used over sigmoid as tanh is centered at 50/50
-    homePossession += playing_style_multiplier * 10
+    scale = 70  # controls how sharply midfield dominance swings possession
+    homePossession = sigmoid(diff, scale)
+    homePossession *= relative_playing_style_multiplier
+    homePossession *= 100
 
 
-    # Add a random swing of ±5%
+    # Add a random swing of +/-5%
     homePossession += random.uniform(-5, 5)
-    homePossession = round(homePossession)
+    homePossession = max(0, min(90, round(homePossession)))
 
     awayPossession = 100 - homePossession
 
@@ -589,12 +492,12 @@ def get_match_statistics(fixture, homeTeam, awayTeam, homeRatings, awayRatings):
     }
 
     basePasses = 100 + homePossession * 6
-    homePasses = poisson(basePasses * playing_style_multipliers[playingStyleA])
+    homePasses = poisson_distribution(basePasses * playing_style_multipliers[playingStyleA])
     midfieldFactor = 1 + ((homeRatings[2] - awayRatings[2]) / 200)
     homePasses *= midfieldFactor
 
     basePasses = 100 + awayPossession * 6
-    awayPasses = poisson(basePasses * playing_style_multipliers[playingStyleB])
+    awayPasses = poisson_distribution(basePasses * playing_style_multipliers[playingStyleB])
     midfieldFactor = 1 + ((awayRatings[2] - homeRatings[2]) / 200)
     awayPasses *= midfieldFactor
 
@@ -626,6 +529,53 @@ def get_match_statistics(fixture, homeTeam, awayTeam, homeRatings, awayRatings):
 
 def simulate_match(fixture, game):
 
+    """
+    1 - The match's "time-related" constants (variables that change depending on the match length) are defined.
+    2 - All players who are starting the match have their appearances for the match increased
+    3 - Each team's goalkeeping, defending, midfield and attacking ratings are calculated and the style fit multiplier is also fetched from the club objects.
+    4 - A team's chances are created by calculating the difference between attack and the opposition defense, and the difference between your midfield and opposition
+    midfield, though this is weighted less. This threat score is passed into an exponential, multiplying base chances by the e ** threat score over a scaling constant,
+    and this constant can be used to reduce / increase the effect a better team has on their chances created. After the cutoff point, the threat score grows slowly, as
+    the amount of chances would grow at an unrealistic rate. This is then passed into a poisson distribution, which can be used to add noise to the static amount of
+    chances, as a poisson distribution can be used for modeling independent events.
+    5 - The total number of team fouls are calculated by finding the mean of the team's player's aggression attributes. This is divided by an average aggression metric
+    to get a multiplier, which is multiplied by the base total fouls pre-determined constant. This is then passed into a poisson distribution, to add noise to the static amount
+    of fouls, as a poisson distribution can be used for modeling independent events.
+    6 - The total amount of chances and fouls are added to a predeterminedEvents dictionary, where these events are assigned a minute they happen in
+    7 - The match loop is run, cycling from the start of the match until the end minute by minute. At the start of every minute, both teams are checked for if they have
+    enough players not sent off - if they have 5 players sent off, the team will register a forfeit and the opposing team is awarded a 3-0 win regardless of what has
+    happened in the match itself up to that point.
+    8 - Player condition is reduced every minute, with a combination of work rate and stamina, along with how deep into the game it is. A team has a 0.001 chance of getting
+    an injury to a player per minute, which works out at around a ~10% chance per game.
+    9 - Every minute a team will consider making a substitution - if a team has a player injured, it will automatically return that player for immediate substitution. If not,
+    it will select a player at random, and if the player has a condition of under 40, and is passed 50 minutes, the player has a 0.2 chance of being subbed off. If being subbed
+    off, all players on the bench will be cycled through and giving a score of 0.4 of his ability in the position and 0.6 of his condition. If this surpasses the player being
+    subbed off, then the player is subbed off. The 0.2 randomness prevents the manager making objective substitutions as soon as the parameters are met - the manager does not
+    know a definitive value of fatigue like is being modeled here.
+    10 - If the minute is reached in which a chance happens, the chance is evaluated. A 'shot-quality' score is generated by stats such as the player's finishing, composure,
+    football IQ etc, and this is compared with the goalkeepers shot-stopping and diving. This value is passed into a sigmoid, as it perfectly maps this into a probability
+    between 0-1, and handles negative values well, with them being assigned a decimal < 0.5. This also acts as the shot XG - as the player's physical position on the pitch
+    is abstracted, this takes away the key variable xG is measured on. If there is a goal, there is a 0.85 chance it will be assisted, and all players in the starting XI (
+    except the goalkeeper and shot taker) are assigned score of their passing, vision, football IQ, composure, and this is used to select the assister. The chance probability
+    is also tweaked slightly by styleFitMultiplier, which considers how suited the team is to playing their style of football, either punishing the manager or benefiting them
+    for selecting a style that doesn't match / matches their squad of players.
+    11 - If the minute is reached in which a foul happens, each player in the team's starting XI is given a score of their defending, composure, decision-making and aggression,
+    where high aggression is punished, and low defending, composure, decision-making are punished. A random player using these weightings is selected, and then is either
+    awarded no card, a yellow, or red. If a player receives a red, he is removed from the match. If a player receives a yellow, the game cycles through and checks if they
+    have been awarded a yellow previously. If so, the yellow becomes a red, and they are sent off.
+    12 - calculateChances, calculateFouls, evaluateChances and evaluateFouls all use weightings to adjust probabilities after the initial values are calculated: for example,
+    the possession style / tactic will result in more chances being created but lower conversion rates in evaluateChances, as with a team working the ball around the box,
+    they may create many half chances but fewer clear-cut chances. A team who plays counter-attacking football will have fewer chances to break away as they invite pressure,
+    but when they do, they often will attack efficiently and with numbers, resulting in a higher conversion rate to reflect a high-quality chance.
+    13 - Match statistics are generated, adding up XG (derived from the probability generated from the sigmoid in evaluateChances), all chances, yellow cards, red cards etc.
+    Extra shots are generated from half the number of chances and the playing style multiplier. This accounts for speculative efforts that can't be considered a big chance.
+    Possession is calculated by finding the difference in midfield and passing it into a sigmoid function - this is because the S shape it generates perfectly mirrors how
+    small margins should result in the midfield battle being won or lost, however huge gaps shouldn't result in extreme amounts of possession due to other factors such as
+    the other team receiving the ball when it goes out of play and when it is in contention. A multiplier from the team's style of play is then used. Passes is derived from
+    possession, and a midfield factor, along with the style fit multiplier. This is passed into a poisson distribution to add some noise / slight variation.
+    """
+
+
     MATCH_TIME_RELATED_CONSTANTS = {
         "MINUTE_STARTING_FROM": 0,
         "MATCH_LENGTH": 90,
@@ -637,15 +587,10 @@ def simulate_match(fixture, game):
     starting_players = []
 
 
-
-
-    formation, starting_eleven, bench, playingStyle = homeTeam.autoPickTeam()
-    homeTeam.setTeamSheet(formation, starting_eleven, bench, playingStyle)
+    formation, starting_eleven, bench, playingStyle = homeTeam.getTeamSheet()
     for player in starting_eleven:
         starting_players.append(player)
-
-    formation, starting_eleven, bench, playingStyle = awayTeam.autoPickTeam()
-    awayTeam.setTeamSheet(formation, starting_eleven, bench, playingStyle)
+    formation, starting_eleven, bench, playingStyle = awayTeam.getTeamSheet()
     for player in starting_eleven:
         starting_players.append(player)
 
@@ -660,8 +605,8 @@ def simulate_match(fixture, game):
     homeRatings = calculateRatings(homeTeam)
     awayRatings = calculateRatings(awayTeam)
 
-    homeStyleFitMultiplier = calculateStyleFitMultiplier(homeTeam, game)
-    awayStyleFitMultiplier = calculateStyleFitMultiplier(awayTeam, game)
+    homeStyleFitMultiplier = homeTeam.styleFitMultiplier
+    awayStyleFitMultiplier = awayTeam.styleFitMultiplier
 
     homeChances = calculateChances(homeRatings, awayRatings, homeTeam, True, homeStyleFitMultiplier, MATCH_TIME_RELATED_CONSTANTS)
     awayChances = calculateChances(awayRatings, homeRatings, awayTeam,False, awayStyleFitMultiplier, MATCH_TIME_RELATED_CONSTANTS)
@@ -709,10 +654,32 @@ def simulate_match(fixture, game):
     homeSubs = 5
     awaySubs = 5
 
+    homeScore = 0
+    awayScore = 0
+
     start = MATCH_TIME_RELATED_CONSTANTS["MINUTE_STARTING_FROM"]
     end = MATCH_TIME_RELATED_CONSTANTS["MINUTE_STARTING_FROM"] + MATCH_TIME_RELATED_CONSTANTS["MATCH_LENGTH"]
 
     for minute in range(start, end):
+
+        # CHECKS FOR POSSIBLE FORFEIT IF 5 PLAYERS FROM A TEAM HAVE BEEN SENT OFF
+        formation, starting_eleven, bench, playingStyle = homeTeam.getTeamSheet()
+        count = 0
+        for player in starting_eleven:
+            if player.isSentOff:
+                count += 1
+        if count > 5:
+            fixture.matchForfeited = homeTeam
+        count = 0
+        formation, starting_eleven, bench, playingStyle = awayTeam.getTeamSheet()
+        for player in starting_eleven:
+            if player.isSentOff:
+                count += 1
+        if count > 5:
+            fixture.matchForfeited = awayTeam
+
+        if fixture.matchForfeited is not False:
+            break
 
         # DECREASING PLAYER CONDITION
         decreaseCondition(homeTeam, awayTeam, minute, MATCH_TIME_RELATED_CONSTANTS)
@@ -750,24 +717,27 @@ def simulate_match(fixture, game):
                 if predeterminedEvent["type"] == "chance":
                     event = evaluateChance(predeterminedEvent["team"], predeterminedEvent["opposing-team"], minute)
                     events.append(event)
+
+                    # CHECKS FOR GOAL
+                    if event["outcome"] == "goal" and event["team"] == homeTeam:
+                        homeScore += 1
+                    elif event["outcome"] == "goal" and event["team"] == awayTeam:
+                        awayScore += 1
+
                 elif predeterminedEvent["type"] == "foul":
                     event = evaluateFoul(predeterminedEvent["team"], minute, events)
                     events.append(event)
-
-        # CALCULATES SCORE
-        homeScore, awayScore = 0, 0
-        for event in events:
-            if event["outcome"] == "goal":
-                if event["team"] == homeTeam:
-                    homeScore += 1
-                elif event["team"] == awayTeam:
-                    awayScore += 1
 
     fixture.setMatchEvents(events)
     statistics = get_match_statistics(fixture, homeTeam, awayTeam, homeRatings, awayRatings)
     fixture.setMatchStatistics(statistics)
     fixture.setScore(homeScore, awayScore)
 
+    if fixture.matchForfeited is not False:
+        if fixture.matchForfeited == homeTeam:
+            fixture.setScore(0, 3)
+        elif fixture.matchForfeited == awayTeam:
+            fixture.setScore(3, 0)
 
 
 def simulate_match_extra_time(fixture, game):
@@ -785,8 +755,8 @@ def simulate_match_extra_time(fixture, game):
     homeRatings = calculateRatings(homeTeam)
     awayRatings = calculateRatings(awayTeam)
 
-    homeStyleFitMultiplier = calculateStyleFitMultiplier(homeTeam, game)
-    awayStyleFitMultiplier = calculateStyleFitMultiplier(homeTeam, game)
+    homeStyleFitMultiplier = homeTeam.styleFitMultiplier
+    awayStyleFitMultiplier = awayTeam.styleFitMultiplier
 
     homeChances = calculateChances(homeRatings, awayRatings, homeTeam, True, homeStyleFitMultiplier, MATCH_TIME_RELATED_CONSTANTS)
     awayChances = calculateChances(awayRatings, homeRatings, awayTeam, False, awayStyleFitMultiplier, MATCH_TIME_RELATED_CONSTANTS)
@@ -839,6 +809,25 @@ def simulate_match_extra_time(fixture, game):
 
     for minute in range(start, end):
 
+        # CHECKS FOR POSSIBLE FORFEIT IF 5 PLAYERS FROM A TEAM HAVE BEEN SENT OFF
+        formation, starting_eleven, bench, playingStyle = homeTeam.getTeamSheet()
+        count = 0
+        for player in starting_eleven:
+            if player.isSentOff:
+                count += 1
+        if count > 5:
+            fixture.matchForfeited = homeTeam
+        count = 0
+        formation, starting_eleven, bench, playingStyle = awayTeam.getTeamSheet()
+        for player in starting_eleven:
+            if player.isSentOff:
+                count += 1
+        if count > 5:
+            fixture.matchForfeited = awayTeam
+
+        if fixture.matchForfeited is not False:
+            break
+
         # DECREASING PLAYER CONDITION
         decreaseCondition(homeTeam, awayTeam, minute, MATCH_TIME_RELATED_CONSTANTS)
 
@@ -868,31 +857,40 @@ def simulate_match_extra_time(fixture, game):
                 events.append(event)
                 awaySubs = subCount
 
+        EThomeScore = 0
+        ETawayScore = 0
+
         # EVALUATES EVENTS IF THEY HAPPEN IN THE MINUTE WE'RE IN
         for predeterminedEvent in predeterminedEvents:
             if predeterminedEvent["minute"] == minute:
                 if predeterminedEvent["type"] == "chance":
                     event = evaluateChance(predeterminedEvent["team"], predeterminedEvent["opposing-team"], minute)
                     events.append(event)
+
+                    # CHECKS FOR GOAL
+                    if event["outcome"] == "goal" and event["team"] == homeTeam:
+                        EThomeScore += 1
+                    elif event["outcome"] == "goal" and event["team"] == awayTeam:
+                        ETawayScore += 1
+
                 elif predeterminedEvent["type"] == "foul":
                     event = evaluateFoul(predeterminedEvent["team"], minute, events)
                     events.append(event)
 
-        # CALCULATES SCORE
-        homeScore, awayScore = 0, 0
-        for event in events:
-            if event["outcome"] == "goal":
-                if event["team"] == homeTeam:
-                    homeScore += 1
-                elif event["team"] == awayTeam:
-                    awayScore += 1
 
-    fixture.setScore(homeScore, awayScore)
+    homeScore, awayScore = fixture.getScore()
+    fixture.setScore(homeScore + EThomeScore, awayScore + ETawayScore)
 
 
     fixture.setMatchEvents(events)
     statistics = get_match_statistics(fixture, homeTeam, awayTeam, homeRatings, awayRatings)
     fixture.setMatchStatistics(statistics)
+
+    if fixture.matchForfeited is not False:
+        if fixture.matchForfeited == homeTeam:
+            fixture.setScore(0, 3)
+        elif fixture.matchForfeited == awayTeam:
+            fixture.setScore(3, 0)
 
 
 def evaluatePenalty(selectedShooter, selectedGoalkeeper):
@@ -903,7 +901,7 @@ def evaluatePenalty(selectedShooter, selectedGoalkeeper):
 
     # USES SIGMOID FUNCTION TO CONVERT TO PROBABILITY
     scale = 15  # Dictates how much ratings matter
-    goalProbability = 1 / (1 + math.exp(-shotQuality / scale))
+    goalProbability = sigmoid(shotQuality, scale)
 
     if random.random() < goalProbability:
         return True

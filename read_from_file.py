@@ -1,62 +1,38 @@
-from classes import *
+import os
+import sqlite3
 
 def initialize_stadiums(stadiums, clubs):
     for id, stadium in stadiums.items():
-        club = stadium.getClub()
+        club = stadium.getClubID()
         if club in clubs and club != 0:
-            clubs[club].setStadium(stadium)
+            clubs[club].setStadiumID(id)
 
 def initialize_managers(managers, clubs):
     for id, manager in managers.items():
-        club = manager.getClub()
-        if club in clubs and club != 0:
-            clubs[club].setManager(manager)
-        elif club == 0:
-            clubs[club].addManager(manager)
+        clubID = manager.getClubID()
+        if clubID in clubs and clubID != 0:
+            clubs[clubID].setManagerID(id)
+        elif clubID == 0:
+            clubs[clubID].addManager(manager)
 
 def initialize_players(players, clubs):
     for id, player in players.items():
-        club = player.getClub()
-        if club in clubs:
-            clubs[club].addPlayer(player)
+        clubID = player.getClubID()
+        if clubID in clubs:
+            clubs[clubID].addPlayer(player)
 
 def initialize_leagues(clubs, leagues):
     for id, club in clubs.items():
-        league = club.getLeague()
-        if league in leagues:
-            leagues[league].addClub(id, club)
-
-def initialize_positions(players, positions):
-    for player in players.values():
-        positionID = player.getPosition()
-        if positionID in positions.keys():
-            player.setPosition(positions[positionID])
-        else:
-            print(f"{player.getName()}: {positionID} was not found.")
-
-def initialize_loans(players, loans):
-    for playerID, loanClub in loans.items():
-
-        playerID = int(playerID)
-        players[playerID].setLoanClub(loanClub)
-        players[playerID].setClub(loanClub)
-
-# NO LONGER IN USE - NATION IDs STORED IN PLAYER / MANAGER OBJECTS INSTEAD OF NATION OBJECT
-def initialize_nations(nations, players, managers):
-    for id, player in players.items():
-        nationID = player.getNationality()
-        if nationID in nations.keys():
-            player.setNation(nations[nationID])
-
-    for id, manager in managers.items():
-        nationID = manager.getNationality()
-        if nationID in nations.keys():
-            manager.setNation(nations[nationID])
+        leagueID = club.getLeagueID()
+        if leagueID in leagues:
+            leagues[leagueID].addClub(id, club)
 
 
 
 
-def read_players_from_file():
+
+
+def read_players_from_file(Player):
     players = {}
     with open("data/players.fmdata", "r", encoding="utf-8") as file:
         for line_number, line in enumerate(file, start=1):
@@ -72,70 +48,106 @@ def read_players_from_file():
 
         return players
 
-def read_loans_from_file():
-    loans = {}
-    with open("data/loans.fmdata") as file:
-        for line in file:
-            data = line.strip().split("-")
-            loans[data[0]] = data[1]
-    return loans
 
 
-def read_clubs_from_file():
+
+
+def fetch_from_database(tableName):
+    conn = sqlite3.connect(database="data/fmdatabase.db")
+    c = conn.cursor()
+    c.execute(f"SELECT * FROM {tableName}")
+    items = c.fetchall()
+    conn.close()
+    return items
+
+
+
+
+def read_clubs_from_database(Club):
     clubs = {}
-    with open("data/clubs.fmdata") as file:
-        for line in file:
-            data = line.strip().split("-")
-            c = Club(data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9])
-            clubs[int(data[0])] = c
+    items = fetch_from_database("clubs")
+    for item in items:
+        c = Club(*item)
+        clubs[int(item[0])] = c
     return clubs
 
 
-def read_managers_from_file():
+def read_managers_from_database(Manager):
     managers = {}
-    with open("data/managers.fmdata") as file:
-        for line in file:
-            data = line.strip().split("-")
-            c = Manager(data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7])
-            managers[int(data[0])] = c
+    items = fetch_from_database("managers")
+    for item in items:
+        c = Manager(*item)
+        managers[int(item[0])] = c
     return managers
 
 
-def read_stadiums_from_file():
+def read_stadiums_from_database(Stadium):
     stadiums = {}
-    with open("data/stadiums.fmdata") as file:
-        for line in file:
-            data = line.strip().split("-")
-            c = Stadium(data[0], data[1], data[2], data[3], data[4], data[5])
-            stadiums[int(data[0])] = c
+    items = fetch_from_database("stadiums")
+    for item in items:
+        c = Stadium(*item)
+        stadiums[int(item[0])] = c
     return stadiums
 
 
-def read_leagues_from_file():
+def read_leagues_from_database(League):
     leagues = {}
-    with open("data/leagues.fmdata") as file:
-        for line in file:
-            data = line.strip().split("-")
-            c = League(data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9])
-            leagues[int(data[0])] = c
+    items = fetch_from_database("leagues")
+    for item in items:
+        c = League(*item)
+        leagues[int(item[0])] = c
     return leagues
 
 
-def read_nations_from_file():
+def read_nations_from_database(Nation):
     nations = {}
-    with open("data/nations.fmdata") as file:
-        for line in file:
-            data = line.strip().split("-")
-            c = Nation(data[0], data[1], data[2], data[3])
-            nations[int(data[0])] = c
+    items = fetch_from_database("nations")
+    for item in items:
+        c = Nation(*item)
+        nations[int(item[0])] = c
     return nations
 
 
-def read_positions_from_file():
+def read_positions_from_database(Position):
     positions = {}
-    with open("data/positions.fmdata") as file:
-        for line in file:
-            data = line.strip().split("-")
-            p = Position(data[0], data[1], data[2])
-            positions[int(data[0])] = p
+    items = fetch_from_database("positions")
+    for item in items:
+        c = Position(*item)
+        positions[int(item[0])] = c
     return positions
+
+
+def read_names_from_file(nations):
+    nation_first_names_last_names = {}
+    backup_nation_id = 1
+
+    backup_first_path = os.path.join("data", "names", f"{backup_nation_id}_first.txt")
+    backup_surname_path = os.path.join("data", "names", f"{backup_nation_id}_surnames.txt")
+
+    for nation_id in nations.keys():
+        first_path = os.path.join("data", "names", f"{nation_id}_first.txt")
+        surname_path = os.path.join("data", "names", f"{nation_id}_surnames.txt")
+
+        if not (os.path.exists(first_path) and os.path.exists(surname_path)):
+            first_path = backup_first_path
+            surname_path = backup_surname_path
+
+        first_names = []
+        surnames = []
+
+        try:
+            with open(first_path, "r", encoding="utf-8") as file:
+                for line in file:
+                    first_names.append(line.strip())
+
+            with open(surname_path, "r", encoding="utf-8") as file:
+                for line in file:
+                    surnames.append(line.strip())
+
+            nation_first_names_last_names[nation_id] = [first_names, surnames]
+
+        except FileNotFoundError:
+            print(f"Critical Error: Both primary files for '{nation_id}' and backup files are missing.")
+
+    return nation_first_names_last_names
+

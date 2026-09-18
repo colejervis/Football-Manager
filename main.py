@@ -1,3 +1,3 @@
-from gamelogic import initial_menu
+from game_orchestration import game_start
 
-initial_menu()
+game_start()
